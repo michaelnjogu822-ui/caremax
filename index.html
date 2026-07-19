@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CareMax Pharmacy & Medical Center</title>
+    <title>CareMax Pharmacy</title>
     <link rel="stylesheet" href="styles.css" />
 </head>
 
@@ -13,7 +13,7 @@
         <header class="topbar">
             <div class="brand">
                 <div class="brand-badge">CM</div>
-                <span>CareMax Pharmacy & Medical Center</span>
+                <span>CareMax Pharmacy</span>
             </div>
             <div class="topbar-actions">
                 <button onclick="showSection('dashboard')">Dashboard</button>
@@ -24,8 +24,6 @@
         <div class="main-layout">
             <aside class="sidebar">
                 <button class="nav-btn active" data-section="dashboard">Dashboard</button>
-                <button class="nav-btn" data-section="patients">Patients</button>
-                <button class="nav-btn" data-section="appointments">Appointments</button>
                 <button class="nav-btn" data-section="pos">Pharmacy POS</button>
                 <button class="nav-btn" data-section="inventory">Inventory</button>
                 <button class="nav-btn" data-section="billing">Billing</button>
@@ -43,10 +41,10 @@
                     </div>
                     <div class="stats-grid">
                         <div class="stat-card">
-                            <h3>Total Patients</h3><strong id="totalPatients">0</strong>
+                            <h3>Total Products</h3><strong id="totalProducts">0</strong>
                         </div>
                         <div class="stat-card">
-                            <h3>Today's Appointments</h3><strong id="todayAppointments">0</strong>
+                            <h3>Low Stock Items</h3><strong id="lowStockItems">0</strong>
                         </div>
                         <div class="stat-card">
                             <h3>Inventory Value</h3><strong id="inventoryValue">0</strong>
@@ -65,7 +63,7 @@
                                     <thead>
                                         <tr>
                                             <th>Receipt</th>
-                                            <th>Patient</th>
+                                            <th>Method</th>
                                             <th>Amount</th>
                                             <th>Time</th>
                                         </tr>
@@ -94,96 +92,6 @@
                     </div>
                 </section>
 
-                <section id="patients-section" class="section-card hidden">
-                    <div class="panel-header">
-                        <div>
-                            <span class="pill">Patient records</span>
-                            <h2 class="margin-6-0-0">Patients</h2>
-                        </div>
-                    </div>
-                    <div class="grid-2">
-                        <div class="section-card">
-                            <h3 class="margin-top-0">Add Patient</h3>
-                            <form id="patientForm" class="form-grid">
-                                <div><label for="patientName">Name</label><input id="patientName" name="name" required /></div>
-                                <div><label for="patientPhone">Phone</label><input id="patientPhone" name="phone" required /></div>
-                                <div><label for="patientDob">Date of Birth</label><input id="patientDob" type="date" name="dob" required /></div>
-                                <div><label for="patientGender">Gender</label><select id="patientGender" name="gender">
-                                        <option>Male</option>
-                                        <option>Female</option>
-                                        <option>Other</option>
-                                    </select></div>
-                                <div><label for="patientBloodGroup">Blood Group</label><input id="patientBloodGroup" name="bloodGroup" value="O+" /></div>
-                                <div><label for="patientAllergies">Allergies</label><input id="patientAllergies" name="allergies" placeholder="None" /></div>
-                                <div class="grid-span-2"><button class="btn btn-primary" type="submit">Save
-                                        Patient</button></div>
-                            </form>
-                        </div>
-                        <div class="section-card">
-                            <div class="table-wrap">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>Name</th>
-                                            <th>Phone</th>
-                                            <th>DOB</th>
-                                            <th>Blood</th>
-                                            <th>Allergies</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="patientsTable"></tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <section id="appointments-section" class="section-card hidden">
-                    <div class="panel-header">
-                        <div>
-                            <span class="pill">Scheduling</span>
-                            <h2 class="margin-6-0-0">Appointments</h2>
-                        </div>
-                    </div>
-                    <div class="grid-2">
-                        <div class="section-card">
-                            <h3 class="margin-top-0">Book Appointment</h3>
-                            <form id="appointmentForm" class="form-grid">
-                                <div><label for="appointmentPatientSelect">Patient</label><select name="patientId"
-                                        id="appointmentPatientSelect"></select></div>
-                                <div><label for="appointmentDoctor">Doctor</label><input id="appointmentDoctor" name="doctor" required /></div>
-                                <div><label for="appointmentDate">Date</label><input id="appointmentDate" type="date" name="date" required /></div>
-                                <div><label for="appointmentTime">Time</label><input id="appointmentTime" type="time" name="time" required /></div>
-                                <div><label for="appointmentReason">Reason</label><input id="appointmentReason" name="reason" required /></div>
-                                <div><label for="appointmentStatus">Status</label><select id="appointmentStatus" name="status">
-                                        <option>Scheduled</option>
-                                        <option>Completed</option>
-                                        <option>Cancelled</option>
-                                    </select></div>
-                                <div class="grid-span-2"><button class="btn btn-primary" type="submit">Save
-                                        Appointment</button></div>
-                            </form>
-                        </div>
-                        <div class="section-card">
-                            <div class="table-wrap">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>Patient</th>
-                                            <th>Doctor</th>
-                                            <th>Date</th>
-                                            <th>Time</th>
-                                            <th>Status</th>
-                                            <th>Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="appointmentsTable"></tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
                 <section id="pos-section" class="section-card hidden">
                     <div class="panel-header">
                         <div>
@@ -194,9 +102,8 @@
                     <div class="pos-layout">
                         <div class="section-card">
                             <div class="form-grid">
-                                <div><label for="productSearch">Search products</label><input id="productSearch" name="productSearch"
-                                        placeholder="Search by name or SKU" /></div>
-                                <div><label for="posPatientSelect">Patient (optional)</label><select id="posPatientSelect" name="posPatientSelect"></select></div>
+                                <div><label for="productSearch">Search products</label><input id="productSearch"
+                                        name="productSearch" placeholder="Search by name or SKU" /></div>
                             </div>
                             <div class="section-card section-highlight">
                                 <h3 class="margin-reset margin-bottom-8">Stock Push</h3>
@@ -234,11 +141,12 @@
                                     </div>
                                     <div>
                                         <label for="discountInput">Discount %</label>
-                                        <input id="discountInput" name="discountInput" type="number" min="0" max="100" value="0" />
+                                        <input id="discountInput" name="discountInput" type="number" min="0" max="100"
+                                            value="0" />
                                     </div>
                                 </div>
-                                <button class="btn btn-success button-wide margin-top-10"
-                                    onclick="checkout()">Complete Sale</button>
+                                <button class="btn btn-success button-wide margin-top-10" onclick="checkout()">Complete
+                                    Sale</button>
                             </div>
                         </div>
                     </div>
@@ -255,12 +163,18 @@
                         <div class="section-card">
                             <h3 class="margin-top-0">Add Product</h3>
                             <form id="inventoryForm" class="form-grid">
-                                <div><label for="inventoryName">Name</label><input id="inventoryName" name="name" required /></div>
-                                <div><label for="inventorySku">SKU</label><input id="inventorySku" name="sku" required /></div>
-                                <div><label for="inventoryCategory">Category</label><input id="inventoryCategory" name="category" required /></div>
-                                <div><label for="inventoryPrice">Price</label><input id="inventoryPrice" type="number" step="0.01" name="price" required /></div>
-                                <div><label for="inventoryStock">Stock</label><input id="inventoryStock" type="number" name="stock" required /></div>
-                                <div><label for="inventoryExpiry">Expiry</label><input id="inventoryExpiry" type="date" name="expiry" /></div>
+                                <div><label for="inventoryName">Name</label><input id="inventoryName" name="name"
+                                        required /></div>
+                                <div><label for="inventorySku">SKU</label><input id="inventorySku" name="sku"
+                                        required /></div>
+                                <div><label for="inventoryCategory">Category</label><input id="inventoryCategory"
+                                        name="category" required /></div>
+                                <div><label for="inventoryPrice">Price</label><input id="inventoryPrice" type="number"
+                                        step="0.01" name="price" required /></div>
+                                <div><label for="inventoryStock">Stock</label><input id="inventoryStock" type="number"
+                                        name="stock" required /></div>
+                                <div><label for="inventoryExpiry">Expiry</label><input id="inventoryExpiry" type="date"
+                                        name="expiry" /></div>
                                 <div class="grid-span-2"><button class="btn btn-primary" type="submit">Add
                                         Product</button></div>
                             </form>
@@ -297,7 +211,6 @@
                             <thead>
                                 <tr>
                                     <th>Invoice</th>
-                                    <th>Patient</th>
                                     <th>Total</th>
                                     <th>Method</th>
                                     <th>Status</th>
@@ -326,8 +239,8 @@
                             <div id="revenueReport"></div>
                         </div>
                         <div class="section-card">
-                            <h3 class="margin-top-0">Upcoming Appointments</h3>
-                            <div id="upcomingReport"></div>
+                            <h3 class="margin-top-0">Stock Alerts</h3>
+                            <div id="stockAlertsReport"></div>
                         </div>
                     </div>
                 </section>
@@ -340,7 +253,8 @@
             <h3 class="margin-top-0">STK Push</h3>
             <p class="small margin-top-0">Enter the customer's phone number to send an STK push. They will
                 enter the PIN on their phone.</p>
-            <div><label for="stkPhoneInput">Phone number</label><input id="stkPhoneInput" type="tel" inputmode="tel" placeholder="2547XXXXXXXX" /></div>
+            <div><label for="stkPhoneInput">Phone number</label><input id="stkPhoneInput" type="tel" inputmode="tel"
+                    placeholder="2547XXXXXXXX" /></div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="cancelStkPush()">Cancel</button>
                 <button class="btn btn-primary" onclick="confirmStkPush()">Send STK Push</button>

@@ -2,8 +2,6 @@ const STORAGE_KEY = 'caremax-demo-v1';
 const API_BASE = '/api';
 
 const initialData = {
-    patients: [],
-    appointments: [],
     products: [],
     sales: [],
     invoices: []
@@ -43,14 +41,12 @@ async function apiRequest(path, options = {}) {
 
 async function loadDataFromAPI() {
     try {
-        const [patients, appointments, products, sales, invoices] = await Promise.all([
-            apiRequest('/patients'),
-            apiRequest('/appointments'),
+        const [products, sales, invoices] = await Promise.all([
             apiRequest('/products'),
             apiRequest('/sales'),
             apiRequest('/invoices')
         ]);
-        state = { patients, appointments, products, sales, invoices };
+        state = { products, sales, invoices };
         saveState();
     } catch (error) {
         console.warn('API unavailable, loading local fallback:', error.message);
@@ -58,9 +54,9 @@ async function loadDataFromAPI() {
     }
 }
 
-function getPatientName(id) {
-    const p = state.patients.find((x) => x.id === Number(id));
-    return p ? p.name : 'Walk-in';
+function getCustomerName(id) {
+    const invoice = state.invoices.find((x) => x.id === id);
+    return invoice ? invoice.id : 'Walk-in';
 }
 
 function formatCurrency(value) {
@@ -79,30 +75,28 @@ function showSection(section) {
 
     if (section === 'pos') renderPos();
     if (section === 'dashboard') renderDashboard();
-    if (section === 'patients') renderPatients();
-    if (section === 'appointments') renderAppointments();
     if (section === 'inventory') renderInventory();
     if (section === 'billing') renderBilling();
     if (section === 'reports') renderReports();
 }
 
 function renderDashboard() {
-    const totalPatients = state.patients.length;
-    const todayAppointments = state.appointments.filter((a) => a.date === new Date().toISOString().split('T')[0]).length;
+    const totalProducts = state.products.length;
+    const lowStockItems = state.products.filter((p) => p.stock < 10).length;
     const inventoryValue = state.products.reduce((sum, p) => sum + p.price * p.stock, 0);
     const todaySales = state.sales
         .filter((s) => new Date(s.createdAt).toDateString() === new Date().toDateString())
         .reduce((sum, s) => sum + s.amount, 0);
 
-    document.getElementById('totalPatients').textContent = totalPatients;
-    document.getElementById('todayAppointments').textContent = todayAppointments;
+    document.getElementById('totalProducts').textContent = totalProducts;
+    document.getElementById('lowStockItems').textContent = lowStockItems;
     document.getElementById('inventoryValue').textContent = formatCurrency(inventoryValue);
     document.getElementById('todaySales').textContent = formatCurrency(todaySales);
 
     document.getElementById('recentSalesTable').innerHTML = state.sales.slice(0, 5).map((sale) => `
     <tr>
       <td>${sale.id}</td>
-      <td>${getPatientName(sale.patientId)}</td>
+      <td>${sale.paymentMethod}</td>
       <td>${formatCurrency(sale.amount)}</td>
       <td>${new Date(sale.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
     </tr>
@@ -117,46 +111,6 @@ function renderDashboard() {
         <td>${p.category}</td>
       </tr>
     `).join('');
-}
-
-function renderPatients() {
-    document.getElementById('patientsTable').innerHTML = state.patients.map((p) => `
-    <tr>
-      <td>${p.name}</td>
-      <td>${p.phone}</td>
-      <td>${p.dob}</td>
-      <td>${p.bloodGroup}</td>
-      <td>${p.allergies}</td>
-    </tr>
-  `).join('');
-}
-
-function renderAppointments() {
-    const select = document.getElementById('appointmentPatientSelect');
-    select.innerHTML = state.patients.map((p) => `<option value="${p.id}" ${p.id === state.patients[0]?.id ? 'selected' : ''}>${p.name}</option>`).join('');
-
-    document.getElementById('appointmentsTable').innerHTML = state.appointments.map((a) => `
-    <tr>
-      <td>${getPatientName(a.patientId)}</td>
-      <td>${a.doctor}</td>
-      <td>${a.date}</td>
-      <td>${a.time}</td>
-      <td>${a.status}</td>
-      <td><button class="btn btn-secondary" onclick="markAppointment(${a.id})">Mark Done</button></td>
-    </tr>
-  `).join('');
-}
-
-async function markAppointment(id) {
-    try {
-        await apiRequest(`/appointments/${id}`, { method: 'PUT' });
-        await loadDataFromAPI();
-        renderAppointments();
-        renderDashboard();
-        renderReports();
-    } catch (error) {
-        alert(error.message);
-    }
 }
 
 function renderInventory() {
@@ -176,7 +130,7 @@ function renderBilling() {
     document.getElementById('billingTable').innerHTML = state.invoices.map((i) => `
     <tr>
       <td>${i.id}</td>
-      <td>${getPatientName(i.patientId)}</td>
+      <td>${i.paymentMethod}</td>
       <td>${formatCurrency(i.total)}</td>
       <td>${i.paymentMethod}</td>
       <td>${i.status}</td>
@@ -192,20 +146,41 @@ function renderReports() {
     const revenue = state.sales.reduce((sum, s) => sum + s.amount, 0);
     document.getElementById('revenueReport').innerHTML = `<h2 style="margin:0;">${formatCurrency(revenue)}</h2><div class="small">Across ${state.sales.length} sales</div>`;
 
-    const upcoming = state.appointments
-        .filter((a) => a.status !== 'Completed')
-        .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
-        .slice(0, 5);
-    document.getElementById('upcomingReport').innerHTML = upcoming.map((a) => `<div class="small">• ${getPatientName(a.patientId)} — ${a.date} ${a.time}</div>`).join('');
+    document.getElementById('stockAlertsReport').innerHTML = state.products
+        .filter((p) => p.stock < 10)
+        .map((p) => `<div class="small">• ${p.name} — ${p.stock} left</div>`)
+        .join('');
+}
+
+function renderBilling() {
+    document.getElementById('billingTable').innerHTML = state.invoices.map((i) => `
+    <tr>
+      <td>${i.id}</td>
+      <td>${formatCurrency(i.total)}</td>
+      <td>${i.paymentMethod}</td>
+      <td>${i.status}</td>
+      <td>${new Date(i.createdAt).toLocaleDateString()}</td>
+    </tr>
+  `).join('');
+}
+
+function renderReports() {
+    const topProducts = [...state.products].sort((a, b) => b.stock - a.stock).slice(0, 5);
+    document.getElementById('topProductsReport').innerHTML = topProducts.map((p) => `<div class="small">• ${p.name} — ${p.stock} in stock</div>`).join('');
+
+    const revenue = state.sales.reduce((sum, s) => sum + s.amount, 0);
+    document.getElementById('revenueReport').innerHTML = `<h2 style="margin:0;">${formatCurrency(revenue)}</h2><div class="small">Across ${state.sales.length} sales</div>`;
+
+    document.getElementById('stockAlertsReport').innerHTML = state.products
+        .filter((p) => p.stock < 10)
+        .map((p) => `<div class="small">• ${p.name} — ${p.stock} left</div>`)
+        .join('');
 }
 
 function renderPos() {
     const search = document.getElementById('productSearch').value.toLowerCase();
     const productGrid = document.getElementById('productGrid');
-    const posPatientSelect = document.getElementById('posPatientSelect');
     const stockPushProduct = document.getElementById('stockPushProduct');
-
-    posPatientSelect.innerHTML = state.patients.map((p) => `<option value="${p.id}" ${p.id === state.patients[0]?.id ? 'selected' : ''}>${p.name}</option>`).join('');
 
     const currentStockValue = stockPushProduct.value;
     stockPushProduct.innerHTML = state.products.map((p) => `<option value="${p.id}" ${String(p.id) === currentStockValue ? 'selected' : ''}>${p.name} (${p.sku})</option>`).join('');
@@ -373,7 +348,6 @@ async function checkout() {
 
     const discount = Number(document.getElementById('discountInput').value || 0);
     const paymentMethod = document.getElementById('paymentMethod').value;
-    const patientId = Number(document.getElementById('posPatientSelect').value) || null;
 
     if (paymentMethod === 'Mobile Money') {
         const phone = await promptForStkPushPhone();
@@ -386,7 +360,6 @@ async function checkout() {
             method: 'POST',
             body: JSON.stringify({
                 items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
-                patientId,
                 paymentMethod,
                 discount
             })
@@ -414,53 +387,6 @@ document.querySelectorAll('.nav-btn').forEach((button) => {
 document.getElementById('productSearch').addEventListener('input', renderPos);
 document.getElementById('discountInput').addEventListener('input', updateCartUI);
 
-document.getElementById('patientForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const form = new FormData(e.target);
-    const payload = {
-        name: form.get('name'),
-        phone: form.get('phone'),
-        dob: form.get('dob'),
-        gender: form.get('gender'),
-        bloodGroup: form.get('bloodGroup'),
-        allergies: form.get('allergies')
-    };
-    try {
-        await apiRequest('/patients', { method: 'POST', body: JSON.stringify(payload) });
-        await loadDataFromAPI();
-        e.target.reset();
-        renderPatients();
-        renderAppointments();
-        renderPos();
-        renderDashboard();
-        renderReports();
-    } catch (error) {
-        alert(error.message);
-    }
-});
-
-document.getElementById('appointmentForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const form = new FormData(e.target);
-    const payload = {
-        patientId: Number(form.get('patientId')),
-        doctor: form.get('doctor'),
-        date: form.get('date'),
-        time: form.get('time'),
-        reason: form.get('reason'),
-        status: form.get('status')
-    };
-    try {
-        await apiRequest('/appointments', { method: 'POST', body: JSON.stringify(payload) });
-        await loadDataFromAPI();
-        e.target.reset();
-        renderAppointments();
-        renderDashboard();
-        renderReports();
-    } catch (error) {
-        alert(error.message);
-    }
-});
 
 document.getElementById('inventoryForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -489,8 +415,6 @@ document.getElementById('inventoryForm').addEventListener('submit', async (e) =>
 async function bootstrap() {
     await loadDataFromAPI();
     renderDashboard();
-    renderPatients();
-    renderAppointments();
     renderInventory();
     renderBilling();
     renderReports();
