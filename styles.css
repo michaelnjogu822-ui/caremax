@@ -411,6 +411,26 @@ textarea {
     width: min(420px, 92vw);
 }
 
+.auth-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    z-index: 1000;
+}
+
+.auth-card {
+    width: min(420px, 100%);
+}
+
+.nav-btn.disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .modal-actions {
     display: flex;
     justify-content: flex-end;

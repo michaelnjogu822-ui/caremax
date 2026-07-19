@@ -18,6 +18,8 @@
             <div class="topbar-actions">
                 <button onclick="showSection('dashboard')">Dashboard</button>
                 <button onclick="showSection('pos')">Open POS</button>
+                <button class="btn btn-warning" id="ownerLoginBtn" onclick="showAuthModal()">Owner Login</button>
+                <button class="btn btn-secondary hidden" id="ownerLogoutBtn" onclick="logoutOwner()">Logout</button>
             </div>
         </header>
 
@@ -25,9 +27,9 @@
             <aside class="sidebar">
                 <button class="nav-btn active" data-section="dashboard">Dashboard</button>
                 <button class="nav-btn" data-section="pos">Pharmacy POS</button>
-                <button class="nav-btn" data-section="inventory">Inventory</button>
-                <button class="nav-btn" data-section="billing">Billing</button>
-                <button class="nav-btn" data-section="reports">Reports</button>
+                <button class="nav-btn" data-section="inventory" data-owner-only="true">Inventory</button>
+                <button class="nav-btn" data-section="billing" data-owner-only="true">Billing</button>
+                <button class="nav-btn" data-section="reports" data-owner-only="true">Reports</button>
             </aside>
 
             <main class="content">

@@ -10,6 +10,13 @@ const initialData = {
 let state = JSON.parse(JSON.stringify(initialData));
 let cart = [];
 let stkPushResolver = null;
+let pendingOwnerSection = null;
+let currentSection = 'dashboard';
+const DEFAULT_OWNER_PASSWORD = 'caremax123';
+const OWNER_PASSWORD_STORAGE_KEY = 'caremax-owner-password';
+const OWNER_SESSION_KEY = 'caremax-owner-session';
+let ownerPassword = loadOwnerPassword();
+let ownerLoggedIn = loadOwnerSession();
 
 function loadLocalState() {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -25,6 +32,23 @@ function loadLocalState() {
 
 function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function loadOwnerPassword() {
+    return localStorage.getItem(OWNER_PASSWORD_STORAGE_KEY) || DEFAULT_OWNER_PASSWORD;
+}
+
+function saveOwnerPassword(password) {
+    localStorage.setItem(OWNER_PASSWORD_STORAGE_KEY, password);
+    ownerPassword = password;
+}
+
+function loadOwnerSession() {
+    return localStorage.getItem(OWNER_SESSION_KEY) === 'true';
+}
+
+function saveOwnerSession() {
+    localStorage.setItem(OWNER_SESSION_KEY, ownerLoggedIn ? 'true' : 'false');
 }
 
 async function apiRequest(path, options = {}) {
@@ -68,6 +92,13 @@ function uniqueId(prefix) {
 }
 
 function showSection(section) {
+    if (isOwnerSection(section) && !ownerLoggedIn) {
+        pendingOwnerSection = section;
+        showAuthModal();
+        return;
+    }
+
+    currentSection = section;
     document.querySelectorAll('[id$="-section"]').forEach((el) => el.classList.add('hidden'));
     document.getElementById(section + '-section').classList.remove('hidden');
     document.querySelectorAll('.nav-btn').forEach((btn) => btn.classList.remove('active'));
@@ -78,6 +109,84 @@ function showSection(section) {
     if (section === 'inventory') renderInventory();
     if (section === 'billing') renderBilling();
     if (section === 'reports') renderReports();
+}
+
+function isOwnerSection(section) {
+    return document.querySelector(`.nav-btn[data-section="${section}"]`)?.dataset.ownerOnly === 'true';
+}
+
+function updateAuthUI() {
+    document.getElementById('ownerLoginBtn').classList.toggle('hidden', ownerLoggedIn);
+    document.getElementById('ownerLogoutBtn').classList.toggle('hidden', !ownerLoggedIn);
+    document.querySelectorAll('.nav-btn[data-owner-only="true"]').forEach((btn) => {
+        if (ownerLoggedIn) {
+            btn.classList.remove('disabled');
+            btn.removeAttribute('disabled');
+        } else {
+            btn.classList.add('disabled');
+            btn.setAttribute('disabled', 'true');
+        }
+    });
+}
+
+function showAuthModal() {
+    document.getElementById('authOverlay').classList.remove('hidden');
+    const error = document.getElementById('authError');
+    error.style.display = 'none';
+    error.textContent = '';
+    const passwordInput = document.getElementById('ownerPassword');
+    passwordInput.value = '';
+    passwordInput.focus();
+}
+
+function hideAuthModal() {
+    document.getElementById('authOverlay').classList.add('hidden');
+    const error = document.getElementById('authError');
+    error.style.display = 'none';
+    error.textContent = '';
+}
+
+function validateOwnerLogin() {
+    const password = document.getElementById('ownerPassword').value;
+    if (password === ownerPassword) {
+        ownerLoggedIn = true;
+        saveOwnerSession();
+        hideAuthModal();
+        updateAuthUI();
+        alert('Owner access granted. Restricted sections are now unlocked.');
+        if (pendingOwnerSection) {
+            const nextSection = pendingOwnerSection;
+            pendingOwnerSection = null;
+            showSection(nextSection);
+        }
+        if (ownerPassword === DEFAULT_OWNER_PASSWORD) {
+            requestOwnerPasswordChange();
+        }
+    } else {
+        const error = document.getElementById('authError');
+        error.style.display = 'block';
+        error.textContent = 'Invalid password. Please try again.';
+    }
+}
+
+function requestOwnerPasswordChange() {
+    const newPassword = prompt('Default owner password detected. Enter a new owner password to secure CareMax Pharmacy:');
+    if (newPassword && newPassword.trim()) {
+        saveOwnerPassword(newPassword.trim());
+        alert('Owner password updated successfully.');
+    } else {
+        alert('Owner password not changed. Default password remains active.');
+    }
+}
+
+function logoutOwner() {
+    ownerLoggedIn = false;
+    saveOwnerSession();
+    updateAuthUI();
+    if (isOwnerSection(currentSection)) {
+        showSection('dashboard');
+    }
+    alert('Owner access revoked. Restricted sections are now locked.');
 }
 
 function renderDashboard() {
@@ -131,31 +240,6 @@ function renderBilling() {
     <tr>
       <td>${i.id}</td>
       <td>${i.paymentMethod}</td>
-      <td>${formatCurrency(i.total)}</td>
-      <td>${i.paymentMethod}</td>
-      <td>${i.status}</td>
-      <td>${new Date(i.createdAt).toLocaleDateString()}</td>
-    </tr>
-  `).join('');
-}
-
-function renderReports() {
-    const topProducts = [...state.products].sort((a, b) => b.stock - a.stock).slice(0, 5);
-    document.getElementById('topProductsReport').innerHTML = topProducts.map((p) => `<div class="small">• ${p.name} — ${p.stock} in stock</div>`).join('');
-
-    const revenue = state.sales.reduce((sum, s) => sum + s.amount, 0);
-    document.getElementById('revenueReport').innerHTML = `<h2 style="margin:0;">${formatCurrency(revenue)}</h2><div class="small">Across ${state.sales.length} sales</div>`;
-
-    document.getElementById('stockAlertsReport').innerHTML = state.products
-        .filter((p) => p.stock < 10)
-        .map((p) => `<div class="small">• ${p.name} — ${p.stock} left</div>`)
-        .join('');
-}
-
-function renderBilling() {
-    document.getElementById('billingTable').innerHTML = state.invoices.map((i) => `
-    <tr>
-      <td>${i.id}</td>
       <td>${formatCurrency(i.total)}</td>
       <td>${i.paymentMethod}</td>
       <td>${i.status}</td>
@@ -414,6 +498,7 @@ document.getElementById('inventoryForm').addEventListener('submit', async (e) =>
 
 async function bootstrap() {
     await loadDataFromAPI();
+    updateAuthUI();
     renderDashboard();
     renderInventory();
     renderBilling();
