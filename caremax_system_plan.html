@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CareMax Pharmacy</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-badge">CM</div>
+                <span>CareMax Pharmacy</span>
+            </div>
+            <div class="topbar-actions">
+                <button onclick="showSection('dashboard')">Dashboard</button>
+                <button onclick="showSection('pos')">Open POS</button>
+                <button class="btn btn-warning" id="ownerLoginBtn" onclick="showAuthModal()">Owner Login</button>
+                <button class="btn btn-secondary hidden" id="ownerLogoutBtn" onclick="logoutOwner()">Logout</button>
+            </div>
+        </header>
+
+        <div id="authOverlay" class="auth-overlay hidden">
+            <div class="auth-card">
+                <div class="panel-header">
+                    <h2>Owner Login</h2>
+                </div>
+                <div class="form-grid">
+                    <div><label for="ownerPassword">Password</label><input id="ownerPassword" type="password" placeholder="Enter owner password" /></div>
+                </div>
+                <div class="action-row">
+                    <button class="btn btn-secondary" onclick="hideAuthModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="validateOwnerLogin()">Login</button>
+                </div>
+                <div id="authError" class="small error-text"></div>
+            </div>
+        </div>
+
+        <div class="main-layout">
+            <aside class="sidebar">
+                <button class="nav-btn active" data-section="dashboard">Dashboard</button>
+                <button class="nav-btn" data-section="pos">Pharmacy POS</button>
+                <button class="nav-btn" data-section="inventory" data-owner-only="true">Inventory</button>
+                <button class="nav-btn" data-section="billing" data-owner-only="true">Billing</button>
+                <button class="nav-btn" data-section="reports" data-owner-only="true">Reports</button>
+            </aside>
+
+            <main class="content">
+                <section id="dashboard-section" class="section-card">
+                    <div class="panel-header">
+                        <div>
+                            <span class="pill">Operations overview</span>
+                            <h2 class="margin-reset">Dashboard</h2>
+                        </div>
+                        <button class="btn btn-primary" onclick="showSection('pos')">New Sale</button>
+                    </div>
+                    <div id="stockAlert" class="section-card alert-banner hidden">
+                        <strong>Low stock alert:</strong> <span id="stockAlertText"></span>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>Inventory Value</h3><strong id="inventoryValue">0</strong>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Today's Sales</h3><strong id="todaySales">0</strong>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Products In Stock</h3><strong id="totalProducts">0</strong>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Low Stock Items</h3><strong id="lowStockCount">0</strong>
+                        </div>
+                    </div>
+                    <div class="grid-2">
+                        <div class="section-card">
+                            <div class="panel-header">
+                                <h3 class="margin-reset">Recent Sales</h3>
+                            </div>
+                            <div class="table-wrap">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Receipt</th>
+                                            <th>Amount</th>
+                                            <th>Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recentSalesTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="section-card">
+                            <div class="panel-header">
+                                <h3 class="margin-reset">Low Stock Alerts</h3>
+                            </div>
+                            <div class="table-wrap">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th>Stock</th>
+                                            <th>Category</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="lowStockTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="pos-section" class="section-card hidden">
+                    <div class="panel-header">
+                        <div>
+                            <span class="pill">Pharmacy checkout</span>
+                            <h2 class="margin-reset">POS</h2>
+                        </div>
+                    </div>
+                    <div class="pos-layout">
+                        <div class="section-card">
+                            <div class="form-grid">
+                                <div><label for="productSearch">Search products</label><input id="productSearch"
+                                        placeholder="Search by name or SKU" /></div>
+                            </div>
+                            <div class="product-grid" id="productGrid"></div>
+                        </div>
+                        <div class="section-card">
+                            <h3 class="margin-reset">Cart</h3>
+                            <div id="cartItems"></div>
+                            <div class="total-box">
+                                <div class="small">Subtotal: <span id="subtotal">0.00</span></div>
+                                <div class="small">Tax (8%): <span id="tax">0.00</span></div>
+                                <h3 class="margin-8-0">Total: <span id="total">0.00</span></h3>
+                                <div class="form-grid">
+                                    <div>
+                                        <label for="paymentMethod">Payment Method</label>
+                                        <select id="paymentMethod" name="paymentMethod">
+                                            <option>Cash</option>
+                                            <option>Card</option>
+                                            <option>Mobile Money</option>
+                                            <option>Insurance</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label for="discountInput">Discount %</label>
+                                        <input id="discountInput" name="discount" type="number" min="0" max="100" value="0" />
+                                    </div>
+                                </div>
+                                <button class="btn btn-success button-wide margin-top-10"
+                                    onclick="checkout()">Complete Sale</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="inventory-section" class="section-card hidden">
+                    <div class="panel-header">
+                        <div>
+                            <span class="pill">Stock control</span>
+                            <h2 class="margin-reset">Inventory</h2>
+                        </div>
+                    </div>
+                    <div class="grid-2">
+                        <div class="section-card">
+                            <h3 class="margin-reset">Add Product</h3>
+                            <form id="inventoryForm" class="form-grid">
+                                <div><label for="inventoryName">Name</label><input id="inventoryName" name="name" required /></div>
+                                <div><label for="inventorySku">SKU</label><input id="inventorySku" name="sku" required /></div>
+                                <div><label for="inventoryCategory">Category</label><input id="inventoryCategory" name="category" required /></div>
+                                <div><label for="inventoryPrice">Price</label><input id="inventoryPrice" type="number" step="0.01" name="price" required /></div>
+                                <div><label for="inventoryStock">Stock</label><input id="inventoryStock" type="number" name="stock" required /></div>
+                                <div><label for="inventoryExpiry">Expiry</label><input id="inventoryExpiry" type="date" name="expiry" /></div>
+                                <div class="grid-span-2"><button class="btn btn-primary" type="submit">Add
+                                        Product</button></div>
+                            </form>
+                        </div>
+                        <div class="section-card">
+                            <div class="table-wrap">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>SKU</th>
+                                            <th>Product</th>
+                                            <th>Category</th>
+                                            <th>Price</th>
+                                            <th>Stock</th>
+                                            <th>Expiry</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="inventoryTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="billing-section" class="section-card hidden">
+                    <div class="panel-header">
+                        <div>
+                            <span class="pill">Payments</span>
+                            <h2 class="margin-6-0-0">Billing</h2>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Invoice</th>
+                                    <th>Total</th>
+                                    <th>Method</th>
+                                    <th>Status</th>
+                                    <th>Date</th>
+                                </tr>
+                            </thead>
+                            <tbody id="billingTable"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="reports-section" class="section-card hidden">
+                    <div class="panel-header">
+                        <div>
+                            <span class="pill">Insights</span>
+                            <h2 class="margin-6-0-0">Reports</h2>
+                        </div>
+                    </div>
+                    <div class="grid-3">
+                        <div class="section-card">
+                            <h3 class="margin-top-0">Top Selling Items</h3>
+                            <div id="topProductsReport"></div>
+                        </div>
+                        <div class="section-card">
+                            <h3 class="margin-top-0">Monthly Revenue</h3>
+                            <div id="revenueReport"></div>
+                        </div>
+                        <div class="section-card">
+                            <h3 class="margin-top-0">Inventory Alerts</h3>
+                            <div id="upcomingReport"></div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'caremax-demo-v1';
+
+        const initialData = {
+            products: [
+                { id: 1, name: 'Paracetamol 500mg', sku: 'PAR-500', category: 'Pain Relief', price: 120, stock: 50, expiry: '2026-12-01' },
+                { id: 2, name: 'Amoxil 250mg', sku: 'AMX-250', category: 'Antibiotic', price: 260, stock: 18, expiry: '2026-09-15' },
+                { id: 3, name: 'Insulin Glargine', sku: 'INS-GLA', category: 'Diabetes', price: 1800, stock: 9, expiry: '2026-08-10' },
+                { id: 4, name: 'Vitamin C 1000mg', sku: 'VIT-C', category: 'Supplements', price: 350, stock: 22, expiry: '2026-11-21' },
+                { id: 5, name: 'Blood Pressure Monitor', sku: 'BPM-01', category: 'Equipment', price: 4200, stock: 7, expiry: '' },
+                { id: 6, name: 'ORS Sachet', sku: 'ORS-01', category: 'Hydration', price: 80, stock: 30, expiry: '2026-07-06' }
+            ],
+            sales: [
+                { id: 'SALE-1001', amount: 520, paymentMethod: 'Cash', createdAt: '2026-06-19T08:40:00', status: 'Paid' },
+                { id: 'SALE-1002', amount: 1860, paymentMethod: 'Mobile Money', createdAt: '2026-06-19T10:15:00', status: 'Paid' }
+            ],
+            invoices: [
+                { id: 'INV-001', total: 520, paymentMethod: 'Cash', status: 'Paid', createdAt: '2026-06-19T08:40:00' },
+                { id: 'INV-002', total: 1860, paymentMethod: 'Mobile Money', status: 'Paid', createdAt: '2026-06-19T10:15:00' }
+            ]
+        };
+
+        let state = loadState();
+        let cart = [];
+        let currentSection = 'dashboard';
+        const DEFAULT_OWNER_PASSWORD = 'caremax123';
+        const OWNER_PASSWORD_STORAGE_KEY = 'caremax-owner-password';
+        const OWNER_SESSION_KEY = 'caremax-owner-session';
+        let ownerPassword = loadOwnerPassword();
+        let ownerLoggedIn = loadOwnerSession();
+
+        function loadState() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    return JSON.parse(saved);
+                } catch (e) {
+                    console.warn('Invalid saved state, using defaults');
+                }
+            }
+            return JSON.parse(JSON.stringify(initialData));
+        }
+
+        function loadOwnerPassword() {
+            return localStorage.getItem(OWNER_PASSWORD_STORAGE_KEY) || DEFAULT_OWNER_PASSWORD;
+        }
+
+        function saveOwnerPassword(password) {
+            localStorage.setItem(OWNER_PASSWORD_STORAGE_KEY, password);
+            ownerPassword = password;
+        }
+
+        function loadOwnerSession() {
+            return localStorage.getItem(OWNER_SESSION_KEY) === 'true';
+        }
+
+        function saveOwnerSession() {
+            localStorage.setItem(OWNER_SESSION_KEY, ownerLoggedIn ? 'true' : 'false');
+        }
+
+        function saveState() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        }
+
+        function formatCurrency(value) {
+            return 'KSh ' + Number(value).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function uniqueId(prefix) {
+            return prefix + '-' + Math.floor(1000 + Math.random() * 9000);
+        }
+
+        function showSection(section) {
+            if (isOwnerSection(section) && !ownerLoggedIn) {
+                showAuthModal();
+                return;
+            }
+            currentSection = section;
+            document.querySelectorAll('[id$="-section"]').forEach((el) => el.classList.add('hidden'));
+            document.getElementById(section + '-section').classList.remove('hidden');
+            document.querySelectorAll('.nav-btn').forEach((btn) => btn.classList.remove('active'));
+            document.querySelector(`[data-section="${section}"]`)?.classList.add('active');
+            if (section === 'pos') renderPos();
+            if (section === 'dashboard') renderDashboard();
+            if (section === 'inventory') renderInventory();
+            if (section === 'billing') renderBilling();
+            if (section === 'reports') renderReports();
+        }
+
+        function isOwnerSection(section) {
+            return document.querySelector(`.nav-btn[data-section="${section}"]`)?.dataset.ownerOnly === 'true';
+        }
+
+        function updateAuthUI() {
+            document.getElementById('ownerLoginBtn').classList.toggle('hidden', ownerLoggedIn);
+            document.getElementById('ownerLogoutBtn').classList.toggle('hidden', !ownerLoggedIn);
+            document.querySelectorAll('.nav-btn[data-owner-only="true"]').forEach((btn) => {
+                if (ownerLoggedIn) {
+                    btn.classList.remove('disabled');
+                    btn.removeAttribute('disabled');
+                } else {
+                    btn.classList.add('disabled');
+                    btn.setAttribute('disabled', 'true');
+                }
+            });
+        }
+
+        function showAuthModal() {
+            document.getElementById('authOverlay').classList.remove('hidden');
+            const error = document.getElementById('authError');
+            error.style.display = 'none';
+            error.textContent = '';
+            document.getElementById('ownerPassword').value = '';
+            document.getElementById('ownerPassword').focus();
+        }
+
+        function hideAuthModal() {
+            document.getElementById('authOverlay').classList.add('hidden');
+            const error = document.getElementById('authError');
+            error.style.display = 'none';
+            error.textContent = '';
+        }
+
+        function validateOwnerLogin() {
+            const password = document.getElementById('ownerPassword').value;
+            if (password === ownerPassword) {
+                ownerLoggedIn = true;
+                saveOwnerSession();
+                hideAuthModal();
+                updateAuthUI();
+                alert('Owner access granted. You can now view inventory, billing, and reports.');
+                renderDashboard();
+                if (ownerPassword === DEFAULT_OWNER_PASSWORD) {
+                    requestOwnerPasswordChange();
+                }
+            } else {
+                const error = document.getElementById('authError');
+                error.style.display = 'block';
+                error.textContent = 'Invalid password. Please try again.';
+            }
+        }
+
+        function requestOwnerPasswordChange() {
+            const newPassword = prompt('Default owner password detected. Enter a new owner password to secure CareMax Pharmacy:');
+            if (newPassword && newPassword.trim()) {
+                saveOwnerPassword(newPassword.trim());
+                alert('Owner password updated successfully.');
+            } else {
+                alert('Owner password not changed. Default password remains active.');
+            }
+        }
+
+        function logoutOwner() {
+            ownerLoggedIn = false;
+            saveOwnerSession();
+            updateAuthUI();
+            if (isOwnerSection(currentSection)) {
+                showSection('dashboard');
+            }
+            alert('Owner access revoked. Restricted sections are now locked.');
+        }
+
+        function updateLowStockAlert() {
+            const lowStockItems = state.products.filter((p) => p.stock < 10);
+            const alertBox = document.getElementById('stockAlert');
+            const alertText = document.getElementById('stockAlertText');
+            if (lowStockItems.length > 0) {
+                alertBox.classList.remove('hidden');
+                alertText.textContent = lowStockItems.map((p) => `${p.name} (${p.stock} left)`).join(', ');
+            } else {
+                alertBox.classList.add('hidden');
+                alertText.textContent = '';
+            }
+        }
+
+        function renderDashboard() {
+            const inventoryValue = state.products.reduce((sum, p) => sum + p.price * p.stock, 0);
+            const todaySales = state.sales
+                .filter((s) => new Date(s.createdAt).toDateString() === new Date().toDateString())
+                .reduce((sum, s) => sum + s.amount, 0);
+            const totalProducts = state.products.length;
+            const lowStockCount = state.products.filter((p) => p.stock < 10).length;
+
+            document.getElementById('inventoryValue').textContent = formatCurrency(inventoryValue);
+            document.getElementById('todaySales').textContent = formatCurrency(todaySales);
+            document.getElementById('totalProducts').textContent = totalProducts;
+            document.getElementById('lowStockCount').textContent = lowStockCount;
+
+            const recentSalesTable = document.getElementById('recentSalesTable');
+            recentSalesTable.innerHTML = state.sales.slice(0, 5).map((sale) => `
+        <tr>
+          <td>${sale.id}</td>
+          <td>${formatCurrency(sale.amount)}</td>
+          <td>${new Date(sale.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+        </tr>
+      `).join('');
+
+            const lowStockTable = document.getElementById('lowStockTable');
+            lowStockTable.innerHTML = state.products
+                .filter((p) => p.stock < 10)
+                .map((p) => `
+          <tr>
+            <td>${p.name}</td>
+            <td>${p.stock}</td>
+            <td>${p.category}</td>
+          </tr>
+        `).join('');
+            updateLowStockAlert();
+        }
+
+        function renderInventory() {
+            const tbody = document.getElementById('inventoryTable');
+            tbody.innerHTML = state.products.map((p) => `
+        <tr>
+          <td>${p.sku}</td>
+          <td>${p.name}</td>
+          <td>${p.category}</td>
+          <td>${formatCurrency(p.price)}</td>
+          <td>${p.stock}</td>
+          <td>${p.expiry || 'N/A'}</td>
+        </tr>
+      `).join('');
+            updateLowStockAlert();
+        }
+
+        function renderBilling() {
+            const tbody = document.getElementById('billingTable');
+            tbody.innerHTML = state.invoices.map((i) => `
+        <tr>
+          <td>${i.id}</td>
+          <td>${formatCurrency(i.total)}</td>
+          <td>${i.paymentMethod}</td>
+          <td>${i.status}</td>
+          <td>${new Date(i.createdAt).toLocaleDateString()}</td>
+        </tr>
+      `).join('');
+        }
+
+        function renderReports() {
+            const topProductsReport = document.getElementById('topProductsReport');
+            const revenueReport = document.getElementById('revenueReport');
+            const upcomingReport = document.getElementById('upcomingReport');
+
+            const topProducts = [...state.products].sort((a, b) => b.stock - a.stock).slice(0, 5);
+            topProductsReport.innerHTML = topProducts.map((p) => `<div class="small">• ${p.name} — ${p.stock} in stock</div>`).join('');
+
+            const revenue = state.sales.reduce((sum, s) => sum + s.amount, 0);
+            revenueReport.innerHTML = `<h2 class="margin-reset">${formatCurrency(revenue)}</h2><div class="small">Across ${state.sales.length} sales</div>`;
+
+            const lowStockItems = state.products.filter((p) => p.stock < 10).slice(0, 5);
+            upcomingReport.innerHTML = lowStockItems.map((p) => `<div class="small">• ${p.name} — ${p.stock} left</div>`).join('');
+        }
+
+        function renderPos() {
+            const search = document.getElementById('productSearch').value.toLowerCase();
+            const productGrid = document.getElementById('productGrid');
+            const filtered = state.products.filter((p) => p.name.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search));
+            productGrid.innerHTML = filtered.map((p) => `
+        <div class="product-card" onclick="addToCart(${p.id})">
+          <strong>${p.name}</strong>
+          <div class="small">${p.sku} • ${p.category}</div>
+          <div class="price-tag">${formatCurrency(p.price)}</div>
+          <div class="small">In stock: ${p.stock}</div>
+        </div>
+      `).join('');
+            updateCartUI();
+        }
+
+        function addToCart(productId) {
+            const product = state.products.find((p) => p.id === productId);
+            if (!product || product.stock <= 0) return;
+            const existing = cart.find((item) => item.productId === productId);
+            if (existing) {
+                existing.quantity += 1;
+            } else {
+                cart.push({ productId, quantity: 1 });
+            }
+            updateCartUI();
+        }
+
+        function changeQty(productId, delta) {
+            const item = cart.find((i) => i.productId === productId);
+            if (!item) return;
+            item.quantity += delta;
+            if (item.quantity <= 0) cart = cart.filter((i) => i.productId !== productId);
+            updateCartUI();
+        }
+
+        function getCartItems() {
+            return cart.map((item) => {
+                const product = state.products.find((p) => p.id === item.productId);
+                return { ...item, product };
+            }).filter((item) => item.product);
+        }
+
+        function updateCartUI() {
+            const items = getCartItems();
+            const cartContainer = document.getElementById('cartItems');
+            const subtotalEl = document.getElementById('subtotal');
+            const taxEl = document.getElementById('tax');
+            const totalEl = document.getElementById('total');
+
+            if (!items.length) {
+                cartContainer.innerHTML = '<div class="small">Cart is empty</div>';
+                subtotalEl.textContent = '0.00';
+                taxEl.textContent = '0.00';
+                totalEl.textContent = '0.00';
+                return;
+            }
+
+            cartContainer.innerHTML = items.map((item) => `
+        <div class="cart-item">
+          <div>
+            <strong>${item.product.name}</strong>
+            <div class="small">${formatCurrency(item.product.price)}</div>
+          </div>
+          <div class="qty-controls">
+            <button onclick="changeQty(${item.product.id}, -1)">−</button>
+            <span>${item.quantity}</span>
+            <button onclick="changeQty(${item.product.id}, 1)">+</button>
+          </div>
+          <button class="btn btn-danger btn-small" onclick="removeFromCart(${item.product.id})">Remove</button>
+        </div>
+      `).join('');
+
+            const subtotal = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+            const discount = Number(document.getElementById('discountInput').value || 0);
+            const tax = subtotal * 0.08;
+            const discountedTotal = subtotal - (subtotal * discount / 100) + tax;
+            subtotalEl.textContent = formatCurrency(subtotal);
+            taxEl.textContent = formatCurrency(tax);
+            totalEl.textContent = formatCurrency(discountedTotal);
+        }
+
+        function removeFromCart(productId) {
+            cart = cart.filter((i) => i.productId !== productId);
+            updateCartUI();
+        }
+
+        function checkout() {
+            const items = getCartItems();
+            if (!items.length) return alert('Cart is empty');
+
+            const subtotal = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+            const discount = Number(document.getElementById('discountInput').value || 0);
+            const tax = subtotal * 0.08;
+            const total = subtotal - (subtotal * discount / 100) + tax;
+            const paymentMethod = document.getElementById('paymentMethod').value;
+
+            for (const item of items) {
+                const product = state.products.find((p) => p.id === item.productId);
+                if (!product || product.stock < item.quantity) {
+                    alert(`Not enough stock for ${product?.name || 'item'}`);
+                    return;
+                }
+            }
+
+            items.forEach((item) => {
+                const product = state.products.find((p) => p.id === item.productId);
+                product.stock -= item.quantity;
+            });
+
+            const saleId = uniqueId('SALE');
+            const invoiceId = uniqueId('INV');
+            const now = new Date().toISOString();
+
+            const sale = {
+                id: saleId,
+                amount: Math.max(0, total),
+                paymentMethod,
+                createdAt: now,
+                status: 'Paid'
+            };
+
+            const invoice = {
+                id: invoiceId,
+                total: Math.max(0, total),
+                status: 'Paid',
+                createdAt: now
+            };
+
+            state.sales.unshift(sale);
+            state.invoices.unshift(invoice);
+            saveState();
+
+            cart = [];
+            document.getElementById('discountInput').value = 0;
+            document.getElementById('paymentMethod').value = 'Cash';
+            updateCartUI();
+            renderDashboard();
+            renderBilling();
+            renderReports();
+            renderPos();
+            alert(`Sale completed successfully. Receipt: ${saleId}`);
+        }
+
+        document.querySelectorAll('.nav-btn').forEach((button) => {
+            button.addEventListener('click', () => showSection(button.dataset.section));
+        });
+
+        document.getElementById('productSearch').addEventListener('input', renderPos);
+        document.getElementById('discountInput').addEventListener('input', updateCartUI);
+
+
+        document.getElementById('inventoryForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const form = new FormData(e.target);
+            const product = {
+                id: Date.now(),
+                name: form.get('name'),
+                sku: form.get('sku'),
+                category: form.get('category'),
+                price: Number(form.get('price')),
+                stock: Number(form.get('stock')),
+                expiry: form.get('expiry')
+            };
+            state.products.unshift(product);
+            saveState();
+            e.target.reset();
+            renderInventory();
+            renderDashboard();
+            renderPos();
+            renderReports();
+        });
+
+        function bootstrap() {
+            updateAuthUI();
+            renderDashboard();
+            renderInventory();
+            renderBilling();
+            renderReports();
+            renderPos();
+        }
+
+        bootstrap();
+    </script>
+</body>
+
+</html>
