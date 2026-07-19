@@ -264,6 +264,26 @@
         </div>
     </div>
 
+    <div id="authOverlay" class="auth-overlay hidden">
+        <div class="auth-card section-card">
+            <div class="panel-header">
+                <div>
+                    <h2 class="margin-reset">Owner Login</h2>
+                    <p class="small margin-top-0">Enter the owner password to unlock Inventory, Billing, and Reports.</p>
+                </div>
+            </div>
+            <div>
+                <label for="ownerPassword">Password</label>
+                <input id="ownerPassword" type="password" placeholder="Enter owner password" />
+            </div>
+            <div id="authError" class="small error-text"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="hideAuthModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="validateOwnerLogin()">Login</button>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 
