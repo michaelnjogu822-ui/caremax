@@ -4,7 +4,8 @@ const API_BASE = '/api';
 const initialData = {
     products: [],
     sales: [],
-    invoices: []
+    invoices: [],
+    reportData: null
 };
 
 let state = JSON.parse(JSON.stringify(initialData));
@@ -65,12 +66,13 @@ async function apiRequest(path, options = {}) {
 
 async function loadDataFromAPI() {
     try {
-        const [products, sales, invoices] = await Promise.all([
+        const [products, sales, invoices, reportData] = await Promise.all([
             apiRequest('/products'),
             apiRequest('/sales'),
-            apiRequest('/invoices')
+            apiRequest('/invoices'),
+            apiRequest('/reports')
         ]);
-        state = { products, sales, invoices };
+        state = { products, sales, invoices, reportData };
         saveState();
     } catch (error) {
         console.warn('API unavailable, loading local fallback:', error.message);
@@ -229,6 +231,7 @@ function renderInventory() {
       <td>${p.name}</td>
       <td>${p.category}</td>
       <td>${formatCurrency(p.price)}</td>
+    <td>${p.costPrice == null ? 'Not set' : formatCurrency(p.costPrice)}</td>
       <td>${p.stock}</td>
       <td>${p.expiry || 'N/A'}</td>
     </tr>
@@ -254,6 +257,11 @@ function renderReports() {
 
     const revenue = state.sales.reduce((sum, s) => sum + s.amount, 0);
     document.getElementById('revenueReport').innerHTML = `<h2 style="margin:0;">${formatCurrency(revenue)}</h2><div class="small">Across ${state.sales.length} sales</div>`;
+
+    const profit = state.reportData;
+    document.getElementById('profitReport').innerHTML = profit
+        ? `<h2 class="margin-reset">${formatCurrency(profit.grossProfit)}</h2><div class="small">${profit.unknownCostLines} sale lines have unknown cost</div>`
+        : '<div class="small">Profit data is available when connected to the Python service.</div>';
 
     document.getElementById('stockAlertsReport').innerHTML = state.products
         .filter((p) => p.stock < 10)
@@ -404,17 +412,20 @@ function promptForStkPushPhone() {
 async function pushStock() {
     const productId = Number(document.getElementById('stockPushProduct').value);
     const quantity = Number(document.getElementById('stockPushQty').value);
+    const unitCost = Number(document.getElementById('stockPushCost').value);
 
-    if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
-        alert('Please choose a valid product and quantity.');
+    if (!productId || !Number.isInteger(quantity) || quantity <= 0 || !Number.isFinite(unitCost) || unitCost < 0) {
+        alert('Choose a product, enter a whole-number quantity, and enter its supplier unit cost.');
         return;
     }
 
     try {
         await apiRequest(`/products/${productId}/stock`, {
             method: 'PUT',
-            body: JSON.stringify({ quantity })
+            body: JSON.stringify({ quantity, unitCost })
         });
+        document.getElementById('stockPushQty').value = 1;
+        document.getElementById('stockPushCost').value = '';
         await loadDataFromAPI();
         renderPos();
         renderInventory();
@@ -480,6 +491,7 @@ document.getElementById('inventoryForm').addEventListener('submit', async (e) =>
         sku: form.get('sku'),
         category: form.get('category'),
         price: Number(form.get('price')),
+        costPrice: Number(form.get('costPrice')),
         stock: Number(form.get('stock')),
         expiry: form.get('expiry')
     };
@@ -507,3 +519,49 @@ async function bootstrap() {
 }
 
 bootstrap();
+
+function toggleAssistant(forceOpen) {
+    const panel = document.getElementById('assistantPanel');
+    const toggle = document.getElementById('assistantToggle');
+    const isOpen = forceOpen ?? panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !isOpen);
+    toggle.setAttribute('aria-expanded', String(isOpen));
+    if (isOpen) document.getElementById('assistantInput').focus();
+}
+
+function appendChatMessage(message, isReply) {
+    const container = document.getElementById('assistantMessages');
+    const bubble = document.createElement('div');
+    bubble.className = `assistant-message ${isReply ? 'assistant-reply' : 'assistant-user'}`;
+    bubble.textContent = message;
+    container.appendChild(bubble);
+    container.scrollTop = container.scrollHeight;
+}
+
+async function sendAssistantMessage(message) {
+    const prompt = message.trim();
+    if (!prompt) return;
+    appendChatMessage(prompt, false);
+    try {
+        const result = await apiRequest('/chat', {
+            method: 'POST',
+            body: JSON.stringify({ message: prompt })
+        });
+        appendChatMessage(result.reply, true);
+        if (result.section) showSection(result.section);
+    } catch (error) {
+        appendChatMessage(`I couldn't reach the CareMax service: ${error.message}`, true);
+    }
+}
+
+document.getElementById('assistantForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = document.getElementById('assistantInput');
+    const prompt = input.value;
+    input.value = '';
+    await sendAssistantMessage(prompt);
+});
+
+document.querySelectorAll('[data-chat-prompt]').forEach((button) => {
+    button.addEventListener('click', () => sendAssistantMessage(button.dataset.chatPrompt));
+});

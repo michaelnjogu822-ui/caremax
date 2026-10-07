@@ -4,7 +4,8 @@
     "description": "CareMax Pharmacy and Medical Center API",
     "main": "server.js",
     "scripts": {
-        "start": "node server.js"
+        "start": "python server.py",
+        "start:node": "node server.js"
     },
     "dependencies": {
         "cors": "^2.8.5",

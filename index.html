@@ -12,7 +12,7 @@
     <div class="app-shell">
         <header class="topbar">
             <div class="brand">
-                <div class="brand-badge">CM</div>
+                <div class="brand-badge" aria-hidden="true">+</div>
                 <span>CareMax Pharmacy</span>
             </div>
             <div class="topbar-actions">
@@ -118,7 +118,12 @@
                                         <label for="stockPushQty">Quantity</label>
                                         <input id="stockPushQty" name="stockPushQty" type="number" min="1" value="1" />
                                     </div>
+                                    <div>
+                                        <label for="stockPushCost">Supplier unit cost (KSh)</label>
+                                        <input id="stockPushCost" name="stockPushCost" type="number" min="0" step="0.01" required />
+                                    </div>
                                 </div>
+                                <p class="small">Recorded costs are used to calculate gross profit.</p>
                                 <button class="btn btn-primary margin-top-10" onclick="pushStock()">Push
                                     Stock</button>
                             </div>
@@ -173,8 +178,10 @@
                                         name="category" required /></div>
                                 <div><label for="inventoryPrice">Price</label><input id="inventoryPrice" type="number"
                                         step="0.01" name="price" required /></div>
+                                <div><label for="inventoryCostPrice">Unit cost (KSh)</label><input id="inventoryCostPrice" type="number"
+                                    min="0" step="0.01" name="costPrice" required /></div>
                                 <div><label for="inventoryStock">Stock</label><input id="inventoryStock" type="number"
-                                        name="stock" required /></div>
+                                    name="stock" min="0" required /></div>
                                 <div><label for="inventoryExpiry">Expiry</label><input id="inventoryExpiry" type="date"
                                         name="expiry" /></div>
                                 <div class="grid-span-2"><button class="btn btn-primary" type="submit">Add
@@ -190,6 +197,7 @@
                                             <th>Product</th>
                                             <th>Category</th>
                                             <th>Price</th>
+                                            <th>Unit cost</th>
                                             <th>Stock</th>
                                             <th>Expiry</th>
                                         </tr>
@@ -231,7 +239,7 @@
                             <h2 class="margin-6-0-0">Reports</h2>
                         </div>
                     </div>
-                    <div class="grid-3">
+                    <div class="grid-4">
                         <div class="section-card">
                             <h3 class="margin-top-0">Top Selling Items</h3>
                             <div id="topProductsReport"></div>
@@ -239,6 +247,10 @@
                         <div class="section-card">
                             <h3 class="margin-top-0">Monthly Revenue</h3>
                             <div id="revenueReport"></div>
+                        </div>
+                        <div class="section-card">
+                            <h3 class="margin-top-0">Gross Profit</h3>
+                            <div id="profitReport"></div>
                         </div>
                         <div class="section-card">
                             <h3 class="margin-top-0">Stock Alerts</h3>
@@ -249,6 +261,26 @@
             </main>
         </div>
     </div>
+
+    <aside id="assistantPanel" class="assistant-panel hidden" aria-label="CareMax navigation assistant">
+        <div class="assistant-header">
+            <div><strong>CareMax Assistant</strong><div class="small">Navigation and workflow help</div></div>
+            <button type="button" class="assistant-close" onclick="toggleAssistant(false)" aria-label="Close chat">×</button>
+        </div>
+        <div id="assistantMessages" class="assistant-messages" role="log" aria-live="polite">
+            <div class="assistant-message assistant-reply">Hi. I can open a section or guide you through receiving stock and completing a sale.</div>
+        </div>
+        <div class="assistant-shortcuts">
+            <button type="button" data-chat-prompt="Open POS">POS</button>
+            <button type="button" data-chat-prompt="Open inventory">Inventory</button>
+            <button type="button" data-chat-prompt="Show profit reports">Reports</button>
+        </div>
+        <form id="assistantForm" class="assistant-form">
+            <input id="assistantInput" aria-label="Ask CareMax" placeholder="Ask or navigate..." required />
+            <button class="btn btn-primary" type="submit">Send</button>
+        </form>
+    </aside>
+    <button id="assistantToggle" class="assistant-toggle" type="button" onclick="toggleAssistant()" aria-expanded="false">Chat</button>
 
     <div id="stkPushModal" class="modal hidden">
         <div class="modal-dialog section-card">
