@@ -246,6 +246,26 @@
         </div>
     </div>
 
+    <aside id="assistantPanel" class="assistant-panel hidden" aria-label="CareMax navigation assistant">
+        <div class="assistant-header">
+            <div><strong>CareMax Assistant</strong><div class="small">Navigation and workflow help</div></div>
+            <button type="button" class="assistant-close" onclick="toggleAssistant(false)" aria-label="Close chat">&times;</button>
+        </div>
+        <div id="assistantMessages" class="assistant-messages" role="log" aria-live="polite">
+            <div class="assistant-message assistant-reply">Hi. I can open a section or guide you through receiving stock and completing a sale.</div>
+        </div>
+        <div class="assistant-shortcuts">
+            <button type="button" data-chat-prompt="Open POS">POS</button>
+            <button type="button" data-chat-prompt="Open inventory">Inventory</button>
+            <button type="button" data-chat-prompt="Show profit reports">Reports</button>
+        </div>
+        <form id="assistantForm" class="assistant-form">
+            <input id="assistantInput" aria-label="Ask CareMax" placeholder="Ask or navigate..." required />
+            <button class="btn btn-primary" type="submit">Send</button>
+        </form>
+    </aside>
+    <button id="assistantToggle" class="assistant-toggle" type="button" onclick="toggleAssistant()" aria-expanded="false">Chat</button>
+
     <script>
         const STORAGE_KEY = 'caremax-demo-v1';
 
@@ -271,6 +291,7 @@
         let state = loadState();
         let cart = [];
         let currentSection = 'dashboard';
+        let pendingOwnerSection = null;
         const DEFAULT_OWNER_PASSWORD = 'caremax123';
         const OWNER_PASSWORD_STORAGE_KEY = 'caremax-owner-password';
         const OWNER_SESSION_KEY = 'caremax-owner-session';
@@ -320,6 +341,7 @@
 
         function showSection(section) {
             if (isOwnerSection(section) && !ownerLoggedIn) {
+                pendingOwnerSection = section;
                 showAuthModal();
                 return;
             }
@@ -380,6 +402,11 @@
                 renderDashboard();
                 if (ownerPassword === DEFAULT_OWNER_PASSWORD) {
                     requestOwnerPasswordChange();
+                }
+                if (pendingOwnerSection) {
+                    const section = pendingOwnerSection;
+                    pendingOwnerSection = null;
+                    showSection(section);
                 }
             } else {
                 const error = document.getElementById('authError');
@@ -669,6 +696,148 @@
             renderDashboard();
             renderPos();
             renderReports();
+        });
+
+        function toggleAssistant(forceOpen) {
+            const panel = document.getElementById('assistantPanel');
+            const toggle = document.getElementById('assistantToggle');
+            const isOpen = forceOpen ?? panel.classList.contains('hidden');
+            panel.classList.toggle('hidden', !isOpen);
+            toggle.setAttribute('aria-expanded', String(isOpen));
+            if (isOpen) document.getElementById('assistantInput').focus();
+        }
+
+        function appendChatMessage(message, isReply) {
+            const container = document.getElementById('assistantMessages');
+            const bubble = document.createElement('div');
+            bubble.className = `assistant-message ${isReply ? 'assistant-reply' : 'assistant-user'}`;
+            bubble.textContent = message;
+            container.appendChild(bubble);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function sendAssistantMessage(message) {
+            const prompt = message.trim();
+            if (!prompt) return;
+            appendChatMessage(prompt, false);
+            const text = prompt.toLowerCase();
+            const genericWords = ['available', 'availability', 'in', 'item', 'items', 'low', 'medicine', 'medicines', 'medication', 'product', 'products', 'stock'];
+            const matchingProducts = state.products.filter((product) => {
+                const name = String(product.name || '').toLowerCase();
+                const sku = String(product.sku || '').toLowerCase();
+                const category = String(product.category || '').toLowerCase();
+                const words = `${name} ${category}`.match(/[a-z0-9]+/g) || [];
+                return (sku && text.includes(sku)) || (name && text.includes(name)) || words.some((word) =>
+                    word.length >= 3 && !genericWords.includes(word) && new RegExp(`\\b${word}\\b`).test(text)
+                );
+            });
+
+            if (matchingProducts.length) {
+                const details = matchingProducts.slice(0, 5).map((product) => {
+                    const stock = Number(product.stock || 0);
+                    const availability = stock > 0 ? `${stock} in stock` : 'out of stock';
+                    const expiry = product.expiry || 'not recorded';
+                    return `${product.name} (${product.sku || 'no SKU'}): ${availability}; price ${formatCurrency(product.price)}; expiry ${expiry}.`;
+                });
+                appendChatMessage(`Current inventory: ${details.join(' ')}`, true);
+                showSection('pos');
+                return;
+            }
+
+            if (/^(open|go to|take me to)\b/.test(text)) {
+                const destinations = [
+                    { words: ['dashboard', 'home', 'overview'], section: 'dashboard', reply: 'Opening the dashboard for sales, inventory, and low-stock alerts.' },
+                    { words: ['pos', 'checkout'], section: 'pos', reply: 'Opening the POS. Search for an item, add it to the cart, adjust quantities, choose payment, and complete the sale.' },
+                    { words: ['inventory'], section: 'inventory', reply: 'Opening inventory to review or add products.' },
+                    { words: ['billing', 'invoice'], section: 'billing', reply: 'Opening billing to review invoices and payment status.' },
+                    { words: ['reports'], section: 'reports', reply: 'Opening reports for sales and stock alerts.' }
+                ];
+                const destination = destinations.find((item) => item.words.some((word) => text.includes(word)));
+                if (destination) {
+                    appendChatMessage(destination.reply, true);
+                    showSection(destination.section);
+                    return;
+                }
+            }
+
+            if (text.includes('low stock') || text.includes('running low') || text.includes('reorder') || text.includes('almost out')) {
+                const lowStock = state.products.filter((product) => Number(product.stock || 0) < 10);
+                const reply = lowStock.length
+                    ? `Low-stock items: ${lowStock.map((product) => `${product.name} (${product.stock} left)`).join('; ')}.`
+                    : 'There are no low-stock items right now.';
+                appendChatMessage(reply, true);
+                showSection('pos');
+                return;
+            }
+
+            if (text.includes('expir')) {
+                const expiryDates = state.products.filter((product) => product.expiry).map((product) => `${product.name}: ${product.expiry}`);
+                appendChatMessage(expiryDates.length ? `Recorded expiry dates: ${expiryDates.join('; ')}.` : 'No product expiry dates are recorded yet.', true);
+                showSection('inventory');
+                return;
+            }
+
+            if (text.includes('profit') || text.includes('gross margin')) {
+                appendChatMessage('This standalone version does not store cost for each sold item, so it cannot calculate reliable gross profit. Use the Python-backed reports after recording supplier unit costs.', true);
+                showSection('reports');
+                return;
+            }
+
+            if (text.includes('today') && (text.includes('sale') || text.includes('revenue') || text.includes('total'))) {
+                const todaysSales = state.sales.filter((sale) => new Date(sale.createdAt).toDateString() === new Date().toDateString());
+                const amount = todaysSales.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
+                appendChatMessage(`Today's sales: ${todaysSales.length} transactions totaling ${formatCurrency(amount)}.`, true);
+                showSection('dashboard');
+                return;
+            }
+
+            if (text.includes('revenue') || text.includes('sales total') || text.includes('all sales')) {
+                const amount = state.sales.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
+                appendChatMessage(`Recorded revenue is ${formatCurrency(amount)} across ${state.sales.length} sales.`, true);
+                showSection('reports');
+                return;
+            }
+
+            if (text.includes('receive') || text.includes('restock') || text.includes('supplier') || text.includes('delivery')) {
+                appendChatMessage('To receive an existing item, open POS and use Stock Push to add the delivered quantity. To add a new item, sign in and use Inventory > Add Product. Record supplier unit cost when available so gross profit can be calculated.', true);
+                showSection('pos');
+                return;
+            }
+
+            if (text.includes('sale') || text.includes('sell') || text.includes('checkout') || text.includes('cart')) {
+                appendChatMessage('To complete a sale, open POS, search for products, add them to the cart, adjust quantities, choose a payment method, set any discount, and select Complete Sale. The system checks stock and deducts it after checkout.', true);
+                showSection('pos');
+                return;
+            }
+
+            if (text.includes('payment') || text.includes('mobile money') || text.includes('cash') || text.includes('card')) {
+                appendChatMessage('POS payment methods include Cash, Card, Mobile Money, and Insurance. Mobile Money currently demonstrates the phone/PIN prompt but is not connected to a payment provider.', true);
+                showSection('pos');
+                return;
+            }
+
+            if (['stock', 'inventory', 'medicine', 'medicines', 'medication', 'products', 'items', 'available', 'availability', 'quantity'].some((word) => new RegExp(`\\b${word}\\b`).test(text))) {
+                const available = state.products.filter((product) => Number(product.stock || 0) > 0);
+                const units = state.products.reduce((sum, product) => sum + Number(product.stock || 0), 0);
+                const listing = state.products.slice(0, 8).map((product) => `${product.name} (${product.stock})`).join('; ');
+                appendChatMessage(`There are ${available.length} products available, with ${units} units total. Stock by product: ${listing || 'no products recorded'}.`, true);
+                showSection('pos');
+                return;
+            }
+
+            appendChatMessage('I can check current stock, prices, expiry dates, low-stock items, and sales, or guide you through receiving stock, POS checkout, billing, and reports. Ask about a medicine by name or SKU, or tell me what you want to do.', true);
+        }
+
+        document.getElementById('assistantForm').addEventListener('submit', (event) => {
+            event.preventDefault();
+            const input = document.getElementById('assistantInput');
+            const prompt = input.value;
+            input.value = '';
+            sendAssistantMessage(prompt);
+        });
+
+        document.querySelectorAll('[data-chat-prompt]').forEach((button) => {
+            button.addEventListener('click', () => sendAssistantMessage(button.dataset.chatPrompt));
         });
 
         function bootstrap() {

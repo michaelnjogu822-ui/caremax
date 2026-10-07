@@ -1,6 +1,7 @@
 import json
 import mimetypes
 import os
+import re
 import secrets
 import sqlite3
 from contextlib import contextmanager
@@ -301,19 +302,121 @@ def add_appointment(data):
 
 
 def chat_reply(message):
-    message = message.lower()
-    intents = [
-        (("pos", "sale", "checkout", "sell"), "pos", "Opening the POS. Search for an item, add it to the cart, then complete the sale."),
-        (("inventory", "stock", "receive", "supplier", "item"), "inventory", "Opening inventory. Add a product or record a stock receipt with its supplier unit cost."),
-        (("report", "profit", "revenue", "sales total"), "reports", "Opening reports. Gross profit uses recorded sale prices and known unit costs; older sales without cost records are excluded."),
-        (("bill", "invoice", "payment"), "billing", "Opening billing to review invoices and payment status."),
-        (("dashboard", "home", "overview"), "dashboard", "Opening the dashboard for today's sales, inventory value, and low-stock alerts."),
+    text = " ".join(str(message).casefold().split())
+    with database() as connection:
+        products = as_dicts(connection.execute("SELECT * FROM products ORDER BY name").fetchall())
+        sales = connection.execute("SELECT amount, createdAt FROM sales").fetchall()
+        profit = connection.execute(
+            "SELECT COALESCE(SUM(lineProfit), 0) AS total, COUNT(*) AS knownLines FROM sale_items WHERE lineProfit IS NOT NULL"
+        ).fetchone()
+        sale_lines = connection.execute("SELECT COUNT(*) FROM sale_items").fetchone()[0]
+
+    if not text:
+        return {"reply": "Type a question about stock, sales, or how to use CareMax.", "section": None}, 200
+
+    sections = [
+        (("dashboard", "home", "overview"), "dashboard", "Opening the dashboard for sales, inventory value, and low-stock alerts."),
+        (("pos", "checkout"), "pos", "Opening the POS. Search for an item, add it to the cart, adjust quantities, choose payment, and complete the sale."),
+        (("inventory",), "inventory", "Opening inventory. Add new products here; receive existing stock from POS using Stock Push and enter the supplier unit cost."),
+        (("billing", "invoice"), "billing", "Opening billing to review invoices, payment methods, and payment status."),
+        (("reports",), "reports", "Opening reports for revenue, gross profit, and stock alerts."),
     ]
-    for keywords, section, reply in intents:
-        if any(keyword in message for keyword in keywords):
+    if text.startswith(("open ", "go to ", "take me to ", "show me ")):
+        for keywords, section, reply in sections:
+            if any(re.search(rf"\b{re.escape(keyword)}\b", text) for keyword in keywords):
+                return {"reply": reply, "section": section}, 200
+
+    matched_products = []
+    generic_words = {"available", "availability", "in", "item", "items", "low", "medicine", "medicines", "medication", "product", "products", "stock"}
+    for product in products:
+        name = (product.get("name") or "").casefold()
+        sku = (product.get("sku") or "").casefold()
+        category = (product.get("category") or "").casefold()
+        name_words = [word for word in re.findall(r"[a-z0-9]+", f"{name} {category}") if len(word) >= 3 and word not in generic_words]
+        if (sku and sku in text) or (name and name in text) or any(
+            re.search(rf"\b{re.escape(word)}\b", text) for word in name_words
+        ):
+            matched_products.append(product)
+
+    if matched_products:
+        details = []
+        for product in matched_products[:5]:
+            stock = int(product.get("stock") or 0)
+            availability = f"{stock} in stock" if stock else "out of stock"
+            price = float(product.get("price") or 0)
+            expiry = product.get("expiry") or "not recorded"
+            details.append(f"{product['name']} ({product.get('sku') or 'no SKU'}): {availability}; price KSh {price:,.2f}; expiry {expiry}.")
+        return {"reply": "Current inventory: " + " ".join(details), "section": "pos"}, 200
+
+    if any(term in text for term in ("profit", "gross margin")):
+        unknown = sale_lines - profit["knownLines"]
+        return {
+            "reply": f"Recorded gross profit is KSh {profit['total']:,.2f}. {unknown} sale lines have no known unit cost, so they are excluded from this figure.",
+            "section": "reports",
+        }, 200
+
+    if any(term in text for term in ("expire", "expiry", "expiring")):
+        items = [f"{product['name']}: {product['expiry']}" for product in products if product.get("expiry")]
+        reply = "Recorded expiry dates: " + "; ".join(items[:8]) if items else "No product expiry dates are recorded yet."
+        return {"reply": reply, "section": "inventory"}, 200
+
+    if any(term in text for term in ("low stock", "running low", "almost out", "reorder")):
+        low_stock = [product for product in products if int(product.get("stock") or 0) < 10]
+        reply = "Low-stock items: " + "; ".join(f"{p['name']} ({p.get('stock', 0)} left)" for p in low_stock) if low_stock else "There are no low-stock items right now."
+        return {"reply": reply, "section": "pos"}, 200
+
+    if "today" in text and any(term in text for term in ("sale", "revenue", "total")):
+        today = datetime.now().astimezone().date()
+        today_sales = []
+        for sale in sales:
+            try:
+                created = datetime.fromisoformat(sale["createdAt"].replace("Z", "+00:00")).astimezone().date()
+            except (AttributeError, ValueError):
+                continue
+            if created == today:
+                today_sales.append(sale)
+        amount = sum(float(sale["amount"] or 0) for sale in today_sales)
+        return {"reply": f"Today's sales: {len(today_sales)} transactions totaling KSh {amount:,.2f}.", "section": "dashboard"}, 200
+
+    if any(term in text for term in ("revenue", "sales total", "total sales", "all sales")):
+        amount = sum(float(sale["amount"] or 0) for sale in sales)
+        return {"reply": f"Recorded revenue is KSh {amount:,.2f} across {len(sales)} sales.", "section": "reports"}, 200
+
+    if any(term in text for term in ("receive", "restock", "supplier", "delivery")):
+        return {
+            "reply": "To receive existing stock, open POS, choose the item in Stock Push, enter the delivered quantity and supplier unit cost, then push stock. To add a new item, use Inventory > Add Product. Entering the unit cost is important for profit reports.",
+            "section": "pos",
+        }, 200
+
+    if any(term in text for term in ("sale", "sell", "checkout", "cart")):
+        return {
+            "reply": "To complete a sale, open POS, search and select each product, adjust quantities in the cart, choose the payment method, set any discount, and select Complete Sale. Stock is deducted when the sale is recorded.",
+            "section": "pos",
+        }, 200
+
+    if any(term in text for term in ("payment", "mobile money", "cash", "card")):
+        return {
+            "reply": "POS payment methods include Cash, Card, Mobile Money, and Insurance. Mobile Money currently demonstrates the phone/PIN prompt; it is not connected to a payment provider.",
+            "section": "pos",
+        }, 200
+
+    inventory_words = ("stock", "inventory", "medicine", "medicines", "medication", "products", "items", "available", "availability", "quantity")
+    if any(re.search(rf"\b{re.escape(word)}\b", text) for word in inventory_words):
+        available = [product for product in products if int(product.get("stock") or 0) > 0]
+        total_units = sum(int(product.get("stock") or 0) for product in products)
+        listing = "; ".join(f"{p['name']} ({p.get('stock', 0)})" for p in products[:8])
+        more = f"; and {len(products) - 8} more" if len(products) > 8 else ""
+        return {
+            "reply": f"There are {len(available)} products available, with {total_units} units total. Stock by product: {listing}{more}.",
+            "section": "pos",
+        }, 200
+
+    for keywords, section, reply in sections:
+        if any(re.search(rf"\b{re.escape(keyword)}\b", text) for keyword in keywords):
             return {"reply": reply, "section": section}, 200
+
     return {
-        "reply": "I can take you to Dashboard, POS, Inventory, Billing, or Reports. Try asking to open one of those, or ask how to receive stock or complete a sale.",
+        "reply": "I can answer current stock and price questions, list low-stock items or expiry dates, summarize sales and recorded profit, and guide POS, stock receiving, billing, and reports. Ask about a medicine by name or SKU, or tell me what you want to do.",
         "section": None,
     }, 200
 
@@ -337,7 +440,7 @@ class CareMaxHandler(BaseHTTPRequestHandler):
         return data
 
     def send_frontend_file(self, filename):
-        if filename not in {"index.html", "app.js", "styles.css"}:
+        if filename not in {"index.html", "caremax_system_plan.html", "app.js", "styles.css"}:
             self.send_json({"error": "File not found"}, 404)
             return
         file_path = ROOT / filename
@@ -353,7 +456,7 @@ class CareMaxHandler(BaseHTTPRequestHandler):
         try:
             if path == "/":
                 self.send_frontend_file("index.html")
-            elif path in {"/index.html", "/app.js", "/styles.css"}:
+            elif path in {"/index.html", "/caremax_system_plan.html", "/app.js", "/styles.css"}:
                 self.send_frontend_file(path.lstrip("/"))
             else:
                 payload, status = get_data(path)
