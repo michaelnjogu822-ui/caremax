@@ -106,7 +106,11 @@
                             <div class="form-grid">
                                 <div><label for="productSearch">Search products</label><input id="productSearch"
                                         name="productSearch" placeholder="Search by name or SKU" /></div>
+                                <div><label for="categoryFilter">Category</label><select id="categoryFilter">
+                                    <option value="">All categories</option>
+                                </select></div>
                             </div>
+                            <p class="small">Sample KSh prices are editable reference estimates. Confirm local supplier prices before trading.</p>
                             <div class="section-card section-highlight">
                                 <h3 class="margin-reset margin-bottom-8">Stock Push</h3>
                                 <div class="form-grid">
@@ -152,6 +156,10 @@
                                             value="0" />
                                     </div>
                                 </div>
+                                <label id="prescriptionCheckWrap" class="check-row hidden">
+                                    <input id="prescriptionVerified" type="checkbox" />
+                                    Pharmacist verified a valid prescription for this sale
+                                </label>
                                 <button class="btn btn-success button-wide margin-top-10" onclick="checkout()">Complete
                                     Sale</button>
                             </div>
@@ -168,8 +176,9 @@
                     </div>
                     <div class="grid-2">
                         <div class="section-card">
-                            <h3 class="margin-top-0">Add Product</h3>
+                            <h3 id="inventoryFormTitle" class="margin-top-0">Add Product</h3>
                             <form id="inventoryForm" class="form-grid">
+                                <input id="inventoryProductId" type="hidden" name="id" />
                                 <div><label for="inventoryName">Name</label><input id="inventoryName" name="name"
                                         required /></div>
                                 <div><label for="inventorySku">SKU</label><input id="inventorySku" name="sku"
@@ -178,14 +187,20 @@
                                         name="category" required /></div>
                                 <div><label for="inventoryPrice">Price</label><input id="inventoryPrice" type="number"
                                         step="0.01" name="price" required /></div>
-                                <div><label for="inventoryCostPrice">Unit cost (KSh)</label><input id="inventoryCostPrice" type="number"
+                                <div id="inventoryCostField"><label for="inventoryCostPrice">Unit cost (KSh)</label><input id="inventoryCostPrice" type="number"
                                     min="0" step="0.01" name="costPrice" required /></div>
-                                <div><label for="inventoryStock">Stock</label><input id="inventoryStock" type="number"
+                                <div><label for="inventoryPrescription">Sale classification</label><select id="inventoryPrescription" name="prescriptionRequired">
+                                    <option value="0">Non-prescription</option>
+                                    <option value="1">Prescription verification required</option>
+                                </select></div>
+                                <div id="inventoryStockField"><label for="inventoryStock">Stock</label><input id="inventoryStock" type="number"
                                     name="stock" min="0" required /></div>
                                 <div><label for="inventoryExpiry">Expiry</label><input id="inventoryExpiry" type="date"
                                         name="expiry" /></div>
-                                <div class="grid-span-2"><button class="btn btn-primary" type="submit">Add
-                                        Product</button></div>
+                                <div class="grid-span-2 action-row">
+                                    <button id="inventorySubmit" class="btn btn-primary" type="submit">Add Product</button>
+                                    <button id="cancelProductEdit" class="btn btn-secondary hidden" type="button" onclick="cancelProductEdit()">Cancel Edit</button>
+                                </div>
                             </form>
                         </div>
                         <div class="section-card">
@@ -198,8 +213,10 @@
                                             <th>Category</th>
                                             <th>Price</th>
                                             <th>Unit cost</th>
+                                            <th>Sale classification</th>
                                             <th>Stock</th>
                                             <th>Expiry</th>
+                                            <th></th>
                                         </tr>
                                     </thead>
                                     <tbody id="inventoryTable"></tbody>

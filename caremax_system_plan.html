@@ -29,7 +29,8 @@
                     <h2>Owner Login</h2>
                 </div>
                 <div class="form-grid">
-                    <div><label for="ownerPassword">Password</label><input id="ownerPassword" type="password" placeholder="Enter owner password" /></div>
+                    <div><label for="ownerPassword">Password</label><input id="ownerPassword" type="password"
+                            placeholder="Enter owner password" /></div>
                 </div>
                 <div class="action-row">
                     <button class="btn btn-secondary" onclick="hideAuthModal()">Cancel</button>
@@ -124,6 +125,19 @@
                             <div class="form-grid">
                                 <div><label for="productSearch">Search products</label><input id="productSearch"
                                         placeholder="Search by name or SKU" /></div>
+                                <div><label for="categoryFilter">Category</label><select id="categoryFilter">
+                                    <option value="">All categories</option>
+                                </select></div>
+                            </div>
+                            <p class="small">Sample KSh prices are editable reference estimates. Confirm local supplier prices before trading.</p>
+                            <div class="section-card section-highlight">
+                                <h3 class="margin-reset margin-bottom-8">Receive Stock</h3>
+                                <div class="form-grid">
+                                    <div><label for="stockPushProduct">Product</label><select id="stockPushProduct"></select></div>
+                                    <div><label for="stockPushQty">Quantity received</label><input id="stockPushQty" type="number" min="1" value="1" /></div>
+                                    <div><label for="stockPushCost">Supplier unit cost (KSh)</label><input id="stockPushCost" type="number" min="0" step="0.01" /></div>
+                                </div>
+                                <button class="btn btn-primary margin-top-10" type="button" onclick="pushStock()">Receive Stock</button>
                             </div>
                             <div class="product-grid" id="productGrid"></div>
                         </div>
@@ -146,11 +160,16 @@
                                     </div>
                                     <div>
                                         <label for="discountInput">Discount %</label>
-                                        <input id="discountInput" name="discount" type="number" min="0" max="100" value="0" />
+                                        <input id="discountInput" name="discount" type="number" min="0" max="100"
+                                            value="0" />
                                     </div>
                                 </div>
-                                <button class="btn btn-success button-wide margin-top-10"
-                                    onclick="checkout()">Complete Sale</button>
+                                <label id="prescriptionCheckWrap" class="check-row hidden">
+                                    <input id="prescriptionVerified" type="checkbox" />
+                                    Pharmacist verified a valid prescription for this sale
+                                </label>
+                                <button class="btn btn-success button-wide margin-top-10" onclick="checkout()">Complete
+                                    Sale</button>
                             </div>
                         </div>
                     </div>
@@ -165,16 +184,31 @@
                     </div>
                     <div class="grid-2">
                         <div class="section-card">
-                            <h3 class="margin-reset">Add Product</h3>
+                            <h3 id="inventoryFormTitle" class="margin-reset">Add Product</h3>
                             <form id="inventoryForm" class="form-grid">
-                                <div><label for="inventoryName">Name</label><input id="inventoryName" name="name" required /></div>
-                                <div><label for="inventorySku">SKU</label><input id="inventorySku" name="sku" required /></div>
-                                <div><label for="inventoryCategory">Category</label><input id="inventoryCategory" name="category" required /></div>
-                                <div><label for="inventoryPrice">Price</label><input id="inventoryPrice" type="number" step="0.01" name="price" required /></div>
-                                <div><label for="inventoryStock">Stock</label><input id="inventoryStock" type="number" name="stock" required /></div>
-                                <div><label for="inventoryExpiry">Expiry</label><input id="inventoryExpiry" type="date" name="expiry" /></div>
-                                <div class="grid-span-2"><button class="btn btn-primary" type="submit">Add
-                                        Product</button></div>
+                                <input id="inventoryProductId" type="hidden" name="id" />
+                                <div><label for="inventoryName">Name</label><input id="inventoryName" name="name"
+                                        required /></div>
+                                <div><label for="inventorySku">SKU</label><input id="inventorySku" name="sku"
+                                        required /></div>
+                                <div><label for="inventoryCategory">Category</label><input id="inventoryCategory"
+                                        name="category" required /></div>
+                                <div><label for="inventoryPrice">Price</label><input id="inventoryPrice" type="number"
+                                        step="0.01" name="price" required /></div>
+                                <div id="inventoryCostField"><label for="inventoryCostPrice">Unit cost (KSh)</label><input id="inventoryCostPrice" type="number"
+                                    min="0" step="0.01" name="costPrice" required /></div>
+                                <div><label for="inventoryPrescription">Sale classification</label><select id="inventoryPrescription" name="prescriptionRequired">
+                                    <option value="0">Non-prescription</option>
+                                    <option value="1">Prescription verification required</option>
+                                </select></div>
+                                <div id="inventoryStockField"><label for="inventoryStock">Stock</label><input id="inventoryStock" type="number"
+                                    name="stock" min="0" required /></div>
+                                <div><label for="inventoryExpiry">Expiry</label><input id="inventoryExpiry" type="date"
+                                        name="expiry" /></div>
+                                <div class="grid-span-2 action-row">
+                                    <button id="inventorySubmit" class="btn btn-primary" type="submit">Add Product</button>
+                                    <button id="cancelProductEdit" class="btn btn-secondary hidden" type="button" onclick="cancelProductEdit()">Cancel Edit</button>
+                                </div>
                             </form>
                         </div>
                         <div class="section-card">
@@ -186,8 +220,11 @@
                                             <th>Product</th>
                                             <th>Category</th>
                                             <th>Price</th>
+                                            <th>Unit cost</th>
+                                            <th>Sale classification</th>
                                             <th>Stock</th>
                                             <th>Expiry</th>
+                                            <th></th>
                                         </tr>
                                     </thead>
                                     <tbody id="inventoryTable"></tbody>
@@ -271,17 +308,43 @@
 
         const initialData = {
             products: [
-                { id: 1, name: 'Paracetamol 500mg', sku: 'PAR-500', category: 'Pain Relief', price: 120, stock: 50, expiry: '2026-12-01' },
-                { id: 2, name: 'Amoxil 250mg', sku: 'AMX-250', category: 'Antibiotic', price: 260, stock: 18, expiry: '2026-09-15' },
-                { id: 3, name: 'Insulin Glargine', sku: 'INS-GLA', category: 'Diabetes', price: 1800, stock: 9, expiry: '2026-08-10' },
-                { id: 4, name: 'Vitamin C 1000mg', sku: 'VIT-C', category: 'Supplements', price: 350, stock: 22, expiry: '2026-11-21' },
-                { id: 5, name: 'Blood Pressure Monitor', sku: 'BPM-01', category: 'Equipment', price: 4200, stock: 7, expiry: '' },
-                { id: 6, name: 'ORS Sachet', sku: 'ORS-01', category: 'Hydration', price: 80, stock: 30, expiry: '2026-07-06' }
+                { id: 1, name: 'Paracetamol 500mg tablets (10s)', sku: 'PAR-500', category: 'Pain Relief', price: 120, costPrice: 45, stock: 50, expiry: '2026-12-01', prescriptionRequired: false },
+                { id: 2, name: 'Amoxil 250mg capsules', sku: 'AMX-250', category: 'Antibiotic', price: 260, costPrice: 120, stock: 18, expiry: '2026-09-15', prescriptionRequired: true },
+                { id: 3, name: 'Insulin Glargine 100 units/ml', sku: 'INS-GLA', category: 'Diabetes', price: 1800, costPrice: 1250, stock: 9, expiry: '2026-08-10', prescriptionRequired: true },
+                { id: 4, name: 'Vitamin C 1000mg tablets (10s)', sku: 'VIT-C', category: 'Vitamins & Minerals', price: 350, costPrice: 140, stock: 22, expiry: '2026-11-21', prescriptionRequired: false },
+                { id: 5, name: 'Blood Pressure Monitor', sku: 'BPM-01', category: 'Equipment', price: 4200, costPrice: 3000, stock: 7, expiry: '', prescriptionRequired: false },
+                { id: 6, name: 'ORS Sachet', sku: 'ORS-01', category: 'Hydration', price: 80, costPrice: 30, stock: 30, expiry: '2026-07-06', prescriptionRequired: false },
+                { id: 7, name: 'Ibuprofen 400mg tablets (10s)', sku: 'IBU-400-10', category: 'Pain Relief', price: 180, costPrice: 85, stock: 35, expiry: '2027-06-30', prescriptionRequired: false },
+                { id: 8, name: 'Cetirizine 10mg tablets (10s)', sku: 'CET-10-10', category: 'Allergy & Cold', price: 120, costPrice: 55, stock: 40, expiry: '2027-08-31', prescriptionRequired: false },
+                { id: 9, name: 'Loratadine 10mg tablets (10s)', sku: 'LOR-10-10', category: 'Allergy & Cold', price: 140, costPrice: 65, stock: 30, expiry: '2027-07-31', prescriptionRequired: false },
+                { id: 10, name: 'Omeprazole 20mg capsules (14s)', sku: 'OME-20-14', category: 'Digestive Health', price: 230, costPrice: 105, stock: 24, expiry: '2027-09-30', prescriptionRequired: false },
+                { id: 11, name: 'Metformin 500mg tablets (30s)', sku: 'MET-500-30', category: 'Diabetes', price: 250, costPrice: 100, stock: 50, expiry: '2027-10-31', prescriptionRequired: true },
+                { id: 12, name: 'Amlodipine 5mg tablets (30s)', sku: 'AML-5-30', category: 'Blood Pressure', price: 160, costPrice: 65, stock: 32, expiry: '2027-08-31', prescriptionRequired: true },
+                { id: 13, name: 'Losartan 50mg tablets (30s)', sku: 'LOS-50-30', category: 'Blood Pressure', price: 380, costPrice: 170, stock: 28, expiry: '2027-09-30', prescriptionRequired: true },
+                { id: 14, name: 'Hydrochlorothiazide 25mg tablets (30s)', sku: 'HCT-25-30', category: 'Blood Pressure', price: 150, costPrice: 65, stock: 26, expiry: '2027-07-31', prescriptionRequired: true },
+                { id: 15, name: 'Atorvastatin 10mg tablets (30s)', sku: 'ATO-10-30', category: 'Heart Health', price: 420, costPrice: 200, stock: 22, expiry: '2027-10-31', prescriptionRequired: true },
+                { id: 16, name: 'Amoxicillin 500mg capsules (21s)', sku: 'AMX-500-21', category: 'Antibiotic', price: 520, costPrice: 240, stock: 18, expiry: '2027-06-30', prescriptionRequired: true },
+                { id: 17, name: 'Doxycycline 100mg capsules (10s)', sku: 'DOX-100-10', category: 'Antibiotic', price: 260, costPrice: 120, stock: 20, expiry: '2027-08-31', prescriptionRequired: true },
+                { id: 18, name: 'Fluconazole 150mg capsule (1s)', sku: 'FLU-150-1', category: 'Antifungal', price: 120, costPrice: 55, stock: 16, expiry: '2027-07-31', prescriptionRequired: true },
+                { id: 19, name: 'Loperamide 2mg capsules (10s)', sku: 'LOP-2-10', category: 'Digestive Health', price: 150, costPrice: 65, stock: 25, expiry: '2027-09-30', prescriptionRequired: false },
+                { id: 20, name: 'Zinc sulfate 20mg tablets (10s)', sku: 'ZIN-20-10', category: 'Vitamins & Minerals', price: 110, costPrice: 50, stock: 32, expiry: '2027-10-31', prescriptionRequired: false },
+                { id: 21, name: 'Folic acid 5mg tablets (30s)', sku: 'FOL-5-30', category: 'Vitamins & Minerals', price: 90, costPrice: 40, stock: 30, expiry: '2027-08-31', prescriptionRequired: false },
+                { id: 22, name: 'Ferrous sulfate 200mg tablets (30s)', sku: 'FER-200-30', category: 'Vitamins & Minerals', price: 140, costPrice: 65, stock: 26, expiry: '2027-09-30', prescriptionRequired: false },
+                { id: 23, name: 'Clotrimazole 1% cream (20g)', sku: 'CLO-1-20G', category: 'Skin & Fungal', price: 220, costPrice: 100, stock: 18, expiry: '2027-07-31', prescriptionRequired: false },
+                { id: 24, name: 'Hydrocortisone 1% cream (15g)', sku: 'HYD-1-15G', category: 'Skin Care', price: 180, costPrice: 75, stock: 16, expiry: '2027-10-31', prescriptionRequired: false },
+                { id: 25, name: 'Salbutamol 100mcg inhaler (200 doses)', sku: 'SAL-100-200', category: 'Respiratory', price: 650, costPrice: 320, stock: 14, expiry: '2027-06-30', prescriptionRequired: true },
+                { id: 26, name: 'Chloramphenicol 0.5% eye drops (10ml)', sku: 'CHL-05-10ML', category: 'Eye Care', price: 180, costPrice: 75, stock: 12, expiry: '2027-08-31', prescriptionRequired: true },
+                { id: 27, name: 'Paracetamol 120mg/5ml oral suspension (100ml)', sku: 'PAR-SYR-100', category: 'Pain Relief', price: 240, costPrice: 105, stock: 20, expiry: '2027-07-31', prescriptionRequired: false },
+                { id: 28, name: 'Antacid oral suspension (200ml)', sku: 'ANT-SUS-200', category: 'Digestive Health', price: 260, costPrice: 120, stock: 18, expiry: '2027-09-30', prescriptionRequired: false },
+                { id: 29, name: 'Diclofenac 50mg tablets (10s)', sku: 'DIC-50-10', category: 'Pain Relief', price: 160, costPrice: 75, stock: 22, expiry: '2027-10-31', prescriptionRequired: true },
+                { id: 30, name: 'Vitamin B complex tablets (30s)', sku: 'VBC-30', category: 'Vitamins & Minerals', price: 240, costPrice: 110, stock: 20, expiry: '2027-08-31', prescriptionRequired: false },
+                { id: 31, name: 'Multivitamin tablets (30s)', sku: 'MVT-30', category: 'Vitamins & Minerals', price: 450, costPrice: 210, stock: 18, expiry: '2027-09-30', prescriptionRequired: false }
             ],
             sales: [
                 { id: 'SALE-1001', amount: 520, paymentMethod: 'Cash', createdAt: '2026-06-19T08:40:00', status: 'Paid' },
                 { id: 'SALE-1002', amount: 1860, paymentMethod: 'Mobile Money', createdAt: '2026-06-19T10:15:00', status: 'Paid' }
             ],
+            stockReceipts: [],
             invoices: [
                 { id: 'INV-001', total: 520, paymentMethod: 'Cash', status: 'Paid', createdAt: '2026-06-19T08:40:00' },
                 { id: 'INV-002', total: 1860, paymentMethod: 'Mobile Money', status: 'Paid', createdAt: '2026-06-19T10:15:00' }
@@ -291,6 +354,7 @@
         let state = loadState();
         let cart = [];
         let currentSection = 'dashboard';
+        let editingProductId = null;
         let pendingOwnerSection = null;
         const DEFAULT_OWNER_PASSWORD = 'caremax123';
         const OWNER_PASSWORD_STORAGE_KEY = 'caremax-owner-password';
@@ -302,7 +366,20 @@
             const saved = localStorage.getItem(STORAGE_KEY);
             if (saved) {
                 try {
-                    return JSON.parse(saved);
+                    const savedState = JSON.parse(saved);
+                    const products = Array.isArray(savedState.products) ? savedState.products : [];
+                    const savedSkus = new Set(products.map((product) => product.sku));
+                    initialData.products.forEach((sample) => {
+                        const existing = products.find((product) => product.sku === sample.sku);
+                        if (!existing && !savedSkus.has(sample.sku)) {
+                            products.push({ ...sample });
+                            savedSkus.add(sample.sku);
+                        } else if (existing) {
+                            existing.costPrice ??= sample.costPrice;
+                            existing.prescriptionRequired ??= sample.prescriptionRequired;
+                        }
+                    });
+                    return { ...initialData, ...savedState, products };
                 } catch (e) {
                     console.warn('Invalid saved state, using defaults');
                 }
@@ -491,11 +568,48 @@
           <td>${p.name}</td>
           <td>${p.category}</td>
           <td>${formatCurrency(p.price)}</td>
+          <td>${p.costPrice == null ? 'Not set' : formatCurrency(p.costPrice)}</td>
+          <td>${p.prescriptionRequired ? 'Prescription required' : 'Non-prescription'}</td>
           <td>${p.stock}</td>
           <td>${p.expiry || 'N/A'}</td>
+                    <td><button class="btn btn-secondary btn-small" onclick="editProduct(${p.id})">Edit</button></td>
         </tr>
       `).join('');
             updateLowStockAlert();
+        }
+
+        function editProduct(productId) {
+            const product = state.products.find((item) => String(item.id) === String(productId));
+            if (!product) return;
+            editingProductId = product.id;
+            document.getElementById('inventoryProductId').value = product.id;
+            document.getElementById('inventoryName').value = product.name;
+            document.getElementById('inventorySku').value = product.sku;
+            document.getElementById('inventoryCategory').value = product.category || '';
+            document.getElementById('inventoryPrice').value = product.price;
+            document.getElementById('inventoryExpiry').value = product.expiry || '';
+            document.getElementById('inventoryPrescription').value = product.prescriptionRequired ? '1' : '0';
+            document.getElementById('inventoryCostField').classList.add('hidden');
+            document.getElementById('inventoryStockField').classList.add('hidden');
+            document.getElementById('inventoryCostPrice').required = false;
+            document.getElementById('inventoryStock').required = false;
+            document.getElementById('inventoryFormTitle').textContent = 'Edit Product';
+            document.getElementById('inventorySubmit').textContent = 'Save Changes';
+            document.getElementById('cancelProductEdit').classList.remove('hidden');
+            showSection('inventory');
+            document.getElementById('inventoryName').focus();
+        }
+
+        function cancelProductEdit() {
+            editingProductId = null;
+            document.getElementById('inventoryForm').reset();
+            document.getElementById('inventoryCostField').classList.remove('hidden');
+            document.getElementById('inventoryStockField').classList.remove('hidden');
+            document.getElementById('inventoryCostPrice').required = true;
+            document.getElementById('inventoryStock').required = true;
+            document.getElementById('inventoryFormTitle').textContent = 'Add Product';
+            document.getElementById('inventorySubmit').textContent = 'Add Product';
+            document.getElementById('cancelProductEdit').classList.add('hidden');
         }
 
         function renderBilling() {
@@ -529,21 +643,45 @@
         function renderPos() {
             const search = document.getElementById('productSearch').value.toLowerCase();
             const productGrid = document.getElementById('productGrid');
-            const filtered = state.products.filter((p) => p.name.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search));
+            const categoryFilter = document.getElementById('categoryFilter');
+            const stockPushProduct = document.getElementById('stockPushProduct');
+            const selectedCategory = categoryFilter.value;
+            const selectedProduct = stockPushProduct.value;
+            const categories = [...new Set(state.products.map((product) => product.category).filter(Boolean))].sort();
+            categoryFilter.innerHTML = '<option value="">All categories</option>' + categories.map((category) =>
+                `<option value="${category}" ${category === selectedCategory ? 'selected' : ''}>${category}</option>`
+            ).join('');
+            stockPushProduct.innerHTML = state.products.map((product) =>
+                `<option value="${product.id}" ${String(product.id) === selectedProduct ? 'selected' : ''}>${product.name} (${product.sku})</option>`
+            ).join('');
+            const filtered = state.products.filter((p) =>
+                (!selectedCategory || p.category === selectedCategory) &&
+                (p.name.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search))
+            );
             productGrid.innerHTML = filtered.map((p) => `
         <div class="product-card" onclick="addToCart(${p.id})">
           <strong>${p.name}</strong>
           <div class="small">${p.sku} • ${p.category}</div>
           <div class="price-tag">${formatCurrency(p.price)}</div>
           <div class="small">In stock: ${p.stock}</div>
+          ${p.prescriptionRequired ? '<span class="product-status rx-status">Prescription required</span>' : ''}
+          ${isProductExpired(p) ? '<span class="product-status expired-status">Expired; sale blocked</span>' : ''}
         </div>
       `).join('');
             updateCartUI();
         }
 
+        function isProductExpired(product) {
+            return Boolean(product.expiry && product.expiry < new Date().toISOString().slice(0, 10));
+        }
+
         function addToCart(productId) {
             const product = state.products.find((p) => p.id === productId);
             if (!product || product.stock <= 0) return;
+            if (isProductExpired(product)) {
+                alert(`${product.name} is expired and cannot be sold.`);
+                return;
+            }
             const existing = cart.find((item) => item.productId === productId);
             if (existing) {
                 existing.quantity += 1;
@@ -574,6 +712,9 @@
             const subtotalEl = document.getElementById('subtotal');
             const taxEl = document.getElementById('tax');
             const totalEl = document.getElementById('total');
+            const needsPrescriptionVerification = items.some((item) => item.product.prescriptionRequired);
+            document.getElementById('prescriptionCheckWrap').classList.toggle('hidden', !needsPrescriptionVerification);
+            if (!needsPrescriptionVerification) document.getElementById('prescriptionVerified').checked = false;
 
             if (!items.length) {
                 cartContainer.innerHTML = '<div class="small">Cart is empty</div>';
@@ -612,9 +753,48 @@
             updateCartUI();
         }
 
+        function pushStock() {
+            const productId = Number(document.getElementById('stockPushProduct').value);
+            const quantity = Number(document.getElementById('stockPushQty').value);
+            const unitCost = Number(document.getElementById('stockPushCost').value);
+            const product = state.products.find((item) => item.id === productId);
+            if (!product || !Number.isInteger(quantity) || quantity <= 0 || !Number.isFinite(unitCost) || unitCost < 0) {
+                alert('Choose a product, whole-number quantity, and valid supplier unit cost.');
+                return;
+            }
+            const oldStock = Number(product.stock || 0);
+            const oldCost = product.costPrice;
+            if (oldStock === 0 || oldCost != null) {
+                product.costPrice = ((oldStock * (oldCost || 0)) + quantity * unitCost) / (oldStock + quantity);
+            }
+            product.stock = oldStock + quantity;
+            state.stockReceipts = state.stockReceipts || [];
+            state.stockReceipts.unshift({
+                id: uniqueId('RCV'),
+                productId,
+                sku: product.sku,
+                quantity,
+                unitCost,
+                receivedAt: new Date().toISOString()
+            });
+            saveState();
+            document.getElementById('stockPushQty').value = 1;
+            document.getElementById('stockPushCost').value = '';
+            renderPos();
+            renderInventory();
+            renderDashboard();
+            alert(`${quantity} units of ${product.name} received.`);
+        }
+
         function checkout() {
             const items = getCartItems();
             if (!items.length) return alert('Cart is empty');
+            if (items.some((item) => item.product.prescriptionRequired) && !document.getElementById('prescriptionVerified').checked) {
+                return alert('A pharmacist must verify a valid prescription before checkout.');
+            }
+            if (items.some((item) => isProductExpired(item.product))) {
+                return alert('Expired medicine cannot be sold. Remove expired items from the cart.');
+            }
 
             const subtotal = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
             const discount = Number(document.getElementById('discountInput').value || 0);
@@ -644,7 +824,8 @@
                 amount: Math.max(0, total),
                 paymentMethod,
                 createdAt: now,
-                status: 'Paid'
+                status: 'Paid',
+                prescriptionVerified: items.some((item) => item.product.prescriptionRequired)
             };
 
             const invoice = {
@@ -661,6 +842,7 @@
             cart = [];
             document.getElementById('discountInput').value = 0;
             document.getElementById('paymentMethod').value = 'Cash';
+            document.getElementById('prescriptionVerified').checked = false;
             updateCartUI();
             renderDashboard();
             renderBilling();
@@ -674,6 +856,7 @@
         });
 
         document.getElementById('productSearch').addEventListener('input', renderPos);
+        document.getElementById('categoryFilter').addEventListener('change', renderPos);
         document.getElementById('discountInput').addEventListener('input', updateCartUI);
 
 
@@ -681,17 +864,40 @@
             e.preventDefault();
             const form = new FormData(e.target);
             const product = {
-                id: Date.now(),
+                id: editingProductId || Date.now(),
                 name: form.get('name'),
                 sku: form.get('sku'),
                 category: form.get('category'),
                 price: Number(form.get('price')),
+                costPrice: Number(form.get('costPrice')),
+                prescriptionRequired: form.get('prescriptionRequired') === '1',
                 stock: Number(form.get('stock')),
                 expiry: form.get('expiry')
             };
-            state.products.unshift(product);
+            if (state.products.some((item) => item.sku === product.sku && String(item.id) !== String(product.id))) {
+                alert('That SKU already exists.');
+                return;
+            }
+            const existing = state.products.find((item) => String(item.id) === String(editingProductId));
+            if (existing) {
+                Object.assign(existing, {
+                    name: product.name,
+                    sku: product.sku,
+                    category: product.category,
+                    price: product.price,
+                    expiry: product.expiry,
+                    prescriptionRequired: product.prescriptionRequired
+                });
+            } else {
+                state.products.unshift(product);
+            }
+            if (!existing && product.stock > 0) {
+                state.stockReceipts = state.stockReceipts || [];
+                state.stockReceipts.unshift({ id: uniqueId('RCV'), productId: product.id, sku: product.sku, quantity: product.stock, unitCost: product.costPrice, receivedAt: new Date().toISOString() });
+            }
             saveState();
             e.target.reset();
+            cancelProductEdit();
             renderInventory();
             renderDashboard();
             renderPos();
@@ -737,7 +943,8 @@
                     const stock = Number(product.stock || 0);
                     const availability = stock > 0 ? `${stock} in stock` : 'out of stock';
                     const expiry = product.expiry || 'not recorded';
-                    return `${product.name} (${product.sku || 'no SKU'}): ${availability}; price ${formatCurrency(product.price)}; expiry ${expiry}.`;
+                    const prescription = product.prescriptionRequired ? 'prescription verification required' : 'non-prescription';
+                    return `${product.name} (${product.sku || 'no SKU'}): ${availability}; price ${formatCurrency(product.price)}; expiry ${expiry}; ${prescription}.`;
                 });
                 appendChatMessage(`Current inventory: ${details.join(' ')}`, true);
                 showSection('pos');
@@ -799,7 +1006,7 @@
             }
 
             if (text.includes('receive') || text.includes('restock') || text.includes('supplier') || text.includes('delivery')) {
-                appendChatMessage('To receive an existing item, open POS and use Stock Push to add the delivered quantity. To add a new item, sign in and use Inventory > Add Product. Record supplier unit cost when available so gross profit can be calculated.', true);
+                appendChatMessage('To receive an existing item, open POS > Receive Stock, select the product, enter the delivered quantity and supplier unit cost, then record the receipt. To add a new item, sign in and use Inventory > Add Product.', true);
                 showSection('pos');
                 return;
             }
@@ -841,6 +1048,7 @@
         });
 
         function bootstrap() {
+            saveState();
             updateAuthUI();
             renderDashboard();
             renderInventory();

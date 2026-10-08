@@ -13,6 +13,33 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("CAREMAX_DB_PATH", ROOT / "caremax.db"))
+SAMPLE_CATALOG = [
+    ("Ibuprofen 400mg tablets (10s)", "IBU-400-10", "Pain Relief", 180, 85, 35, "2027-06-30", 0),
+    ("Cetirizine 10mg tablets (10s)", "CET-10-10", "Allergy & Cold", 120, 55, 40, "2027-08-31", 0),
+    ("Loratadine 10mg tablets (10s)", "LOR-10-10", "Allergy & Cold", 140, 65, 30, "2027-07-31", 0),
+    ("Omeprazole 20mg capsules (14s)", "OME-20-14", "Digestive Health", 230, 105, 24, "2027-09-30", 0),
+    ("Metformin 500mg tablets (30s)", "MET-500-30", "Diabetes", 250, 100, 50, "2027-10-31", 1),
+    ("Amlodipine 5mg tablets (30s)", "AML-5-30", "Blood Pressure", 160, 65, 32, "2027-08-31", 1),
+    ("Losartan 50mg tablets (30s)", "LOS-50-30", "Blood Pressure", 380, 170, 28, "2027-09-30", 1),
+    ("Hydrochlorothiazide 25mg tablets (30s)", "HCT-25-30", "Blood Pressure", 150, 65, 26, "2027-07-31", 1),
+    ("Atorvastatin 10mg tablets (30s)", "ATO-10-30", "Heart Health", 420, 200, 22, "2027-10-31", 1),
+    ("Amoxicillin 500mg capsules (21s)", "AMX-500-21", "Antibiotic", 520, 240, 18, "2027-06-30", 1),
+    ("Doxycycline 100mg capsules (10s)", "DOX-100-10", "Antibiotic", 260, 120, 20, "2027-08-31", 1),
+    ("Fluconazole 150mg capsule (1s)", "FLU-150-1", "Antifungal", 120, 55, 16, "2027-07-31", 1),
+    ("Loperamide 2mg capsules (10s)", "LOP-2-10", "Digestive Health", 150, 65, 25, "2027-09-30", 0),
+    ("Zinc sulfate 20mg tablets (10s)", "ZIN-20-10", "Vitamins & Minerals", 110, 50, 32, "2027-10-31", 0),
+    ("Folic acid 5mg tablets (30s)", "FOL-5-30", "Vitamins & Minerals", 90, 40, 30, "2027-08-31", 0),
+    ("Ferrous sulfate 200mg tablets (30s)", "FER-200-30", "Vitamins & Minerals", 140, 65, 26, "2027-09-30", 0),
+    ("Clotrimazole 1% cream (20g)", "CLO-1-20G", "Skin & Fungal", 220, 100, 18, "2027-07-31", 0),
+    ("Hydrocortisone 1% cream (15g)", "HYD-1-15G", "Skin Care", 180, 75, 16, "2027-10-31", 0),
+    ("Salbutamol 100mcg inhaler (200 doses)", "SAL-100-200", "Respiratory", 650, 320, 14, "2027-06-30", 1),
+    ("Chloramphenicol 0.5% eye drops (10ml)", "CHL-05-10ML", "Eye Care", 180, 75, 12, "2027-08-31", 1),
+    ("Paracetamol 120mg/5ml oral suspension (100ml)", "PAR-SYR-100", "Pain Relief", 240, 105, 20, "2027-07-31", 0),
+    ("Antacid oral suspension (200ml)", "ANT-SUS-200", "Digestive Health", 260, 120, 18, "2027-09-30", 0),
+    ("Diclofenac 50mg tablets (10s)", "DIC-50-10", "Pain Relief", 160, 75, 22, "2027-10-31", 1),
+    ("Vitamin B complex tablets (30s)", "VBC-30", "Vitamins & Minerals", 240, 110, 20, "2027-08-31", 0),
+    ("Multivitamin tablets (30s)", "MVT-30", "Vitamins & Minerals", 450, 210, 18, "2027-09-30", 0),
+]
 
 
 @contextmanager
@@ -60,7 +87,9 @@ def init_db():
                 category TEXT,
                 price REAL,
                 stock INTEGER,
-                expiry TEXT
+                expiry TEXT,
+                costPrice REAL,
+                prescriptionRequired INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS sales (
                 id TEXT PRIMARY KEY,
@@ -68,7 +97,8 @@ def init_db():
                 amount REAL,
                 paymentMethod TEXT,
                 createdAt TEXT,
-                status TEXT
+                status TEXT,
+                prescriptionVerified INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS invoices (
                 id TEXT PRIMARY KEY,
@@ -103,6 +133,28 @@ def init_db():
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(products)")}
         if "costPrice" not in columns:
             connection.execute("ALTER TABLE products ADD COLUMN costPrice REAL")
+        if "prescriptionRequired" not in columns:
+            connection.execute("ALTER TABLE products ADD COLUMN prescriptionRequired INTEGER NOT NULL DEFAULT 0")
+        sale_columns = {row["name"] for row in connection.execute("PRAGMA table_info(sales)")}
+        if "prescriptionVerified" not in sale_columns:
+            connection.execute("ALTER TABLE sales ADD COLUMN prescriptionVerified INTEGER NOT NULL DEFAULT 0")
+        seed_sample_catalog(connection)
+
+
+def seed_sample_catalog(connection):
+    for product in SAMPLE_CATALOG:
+        name, sku, category, price, unit_cost, stock, expiry, prescription_required = product
+        cursor = connection.execute(
+            "INSERT OR IGNORE INTO products (name, sku, category, price, stock, expiry, costPrice, prescriptionRequired) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, sku, category, price, stock, expiry, unit_cost, prescription_required),
+        )
+        if cursor.rowcount:
+            product_id = cursor.lastrowid
+            connection.execute(
+                "INSERT INTO stock_receipts (productId, quantity, unitCost, receivedAt) VALUES (?, ?, ?, ?)",
+                (product_id, stock, unit_cost, now_iso()),
+            )
+    connection.execute("UPDATE products SET prescriptionRequired = 1 WHERE sku IN ('AMX-250', 'INS-GLA')")
 
 
 def now_iso():
@@ -172,15 +224,16 @@ def add_product(data):
         price = float(data.get("price"))
         stock = int_value(data.get("stock"))
         cost_price = float(data["costPrice"]) if data.get("costPrice") not in (None, "") else None
+        prescription_required = int_value(data.get("prescriptionRequired", 0))
     except (KeyError, TypeError, ValueError):
         return response_error("Enter valid price, stock, and unit cost values", 400)
-    if not name or not sku or price < 0 or stock < 0 or (cost_price is not None and cost_price < 0):
+    if not name or not sku or price < 0 or stock < 0 or (cost_price is not None and cost_price < 0) or prescription_required not in (0, 1):
         return response_error("Name and SKU are required; prices and stock cannot be negative", 400)
     try:
         with database() as connection:
             cursor = connection.execute(
-                "INSERT INTO products (name, sku, category, price, stock, expiry, costPrice) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (name, sku, data.get("category", ""), price, stock, data.get("expiry", ""), cost_price),
+                "INSERT INTO products (name, sku, category, price, stock, expiry, costPrice, prescriptionRequired) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, sku, data.get("category", ""), price, stock, data.get("expiry", ""), cost_price, prescription_required),
             )
             product_id = cursor.lastrowid
             if stock and cost_price is not None:
@@ -192,6 +245,31 @@ def add_product(data):
     except sqlite3.IntegrityError:
         return response_error("That SKU already exists", 409)
     return dict(product), 201
+
+
+def update_product(product_id, data):
+    name = str(data.get("name", "")).strip()
+    sku = str(data.get("sku", "")).strip()
+    try:
+        price = float(data.get("price"))
+        prescription_required = int_value(data.get("prescriptionRequired", 0))
+    except (TypeError, ValueError):
+        return response_error("Enter a valid price and prescription classification", 400)
+    if not name or not sku or price < 0 or prescription_required not in (0, 1):
+        return response_error("Name and SKU are required; price cannot be negative", 400)
+    try:
+        with database() as connection:
+            existing = connection.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+            if existing is None:
+                return response_error("Product not found", 404)
+            connection.execute(
+                "UPDATE products SET name = ?, sku = ?, category = ?, price = ?, expiry = ?, prescriptionRequired = ? WHERE id = ?",
+                (name, sku, data.get("category", ""), price, data.get("expiry", ""), prescription_required, product_id),
+            )
+            product = connection.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+    except sqlite3.IntegrityError:
+        return response_error("That SKU already exists", 409)
+    return dict(product), 200
 
 
 def receive_stock(product_id, data):
@@ -252,13 +330,19 @@ def create_sale(data):
                 return response_error("A product in the cart no longer exists", 400)
             if (product["stock"] or 0) < quantity:
                 return response_error(f"Not enough stock for {product['name']}", 400)
+            if product["expiry"] and product["expiry"] < datetime.now().date().isoformat():
+                return response_error(f"{product['name']} is expired and cannot be sold", 400)
             products[product_id] = product
+
+        prescription_items = [product["name"] for product in products.values() if product["prescriptionRequired"]]
+        if prescription_items and data.get("prescriptionVerified") is not True:
+            return response_error("A pharmacist must verify the prescription before selling: " + ", ".join(prescription_items), 400)
 
         subtotal = sum(products[product_id]["price"] * quantity for product_id, quantity in quantities.items())
         total = subtotal - subtotal * discount / 100 + subtotal * 0.08
         connection.execute(
-            "INSERT INTO sales (id, patientId, amount, paymentMethod, createdAt, status) VALUES (?, ?, ?, ?, ?, ?)",
-            (sale_id, data.get("patientId"), total, payment_method, created_at, "Paid"),
+            "INSERT INTO sales (id, patientId, amount, paymentMethod, createdAt, status, prescriptionVerified) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (sale_id, data.get("patientId"), total, payment_method, created_at, "Paid", int(bool(prescription_items))),
         )
         connection.execute(
             "INSERT INTO invoices (id, patientId, total, paymentMethod, status, createdAt) VALUES (?, ?, ?, ?, ?, ?)",
@@ -345,7 +429,8 @@ def chat_reply(message):
             availability = f"{stock} in stock" if stock else "out of stock"
             price = float(product.get("price") or 0)
             expiry = product.get("expiry") or "not recorded"
-            details.append(f"{product['name']} ({product.get('sku') or 'no SKU'}): {availability}; price KSh {price:,.2f}; expiry {expiry}.")
+            prescription = "prescription required" if product.get("prescriptionRequired") else "no prescription flag"
+            details.append(f"{product['name']} ({product.get('sku') or 'no SKU'}): {availability}; price KSh {price:,.2f}; expiry {expiry}; {prescription}.")
         return {"reply": "Current inventory: " + " ".join(details), "section": "pos"}, 200
 
     if any(term in text for term in ("profit", "gross margin")):
@@ -499,6 +584,9 @@ class CareMaxHandler(BaseHTTPRequestHandler):
             if path.startswith("/api/products/") and path.endswith("/stock"):
                 product_id = int(path.split("/")[3])
                 payload, status = receive_stock(product_id, data)
+            elif path.startswith("/api/products/"):
+                product_id = int(path.split("/")[3])
+                payload, status = update_product(product_id, data)
             elif path.startswith("/api/appointments/"):
                 appointment_id = int(path.split("/")[3])
                 with database() as connection:

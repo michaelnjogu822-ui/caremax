@@ -10,6 +10,7 @@ const initialData = {
 
 let state = JSON.parse(JSON.stringify(initialData));
 let cart = [];
+let editingProductId = null;
 let stkPushResolver = null;
 let pendingOwnerSection = null;
 let currentSection = 'dashboard';
@@ -232,8 +233,10 @@ function renderInventory() {
       <td>${p.category}</td>
       <td>${formatCurrency(p.price)}</td>
     <td>${p.costPrice == null ? 'Not set' : formatCurrency(p.costPrice)}</td>
+    <td>${p.prescriptionRequired ? 'Prescription required' : 'Non-prescription'}</td>
       <td>${p.stock}</td>
       <td>${p.expiry || 'N/A'}</td>
+            <td><button class="btn btn-secondary btn-small" onclick="editProduct(${p.id})">Edit</button></td>
     </tr>
   `).join('');
 }
@@ -249,6 +252,40 @@ function renderBilling() {
       <td>${new Date(i.createdAt).toLocaleDateString()}</td>
     </tr>
   `).join('');
+}
+
+function editProduct(productId) {
+    const product = state.products.find((item) => item.id === productId);
+    if (!product) return;
+    editingProductId = product.id;
+    document.getElementById('inventoryProductId').value = product.id;
+    document.getElementById('inventoryName').value = product.name;
+    document.getElementById('inventorySku').value = product.sku;
+    document.getElementById('inventoryCategory').value = product.category || '';
+    document.getElementById('inventoryPrice').value = product.price;
+    document.getElementById('inventoryExpiry').value = product.expiry || '';
+    document.getElementById('inventoryPrescription').value = product.prescriptionRequired ? '1' : '0';
+    document.getElementById('inventoryCostField').classList.add('hidden');
+    document.getElementById('inventoryStockField').classList.add('hidden');
+    document.getElementById('inventoryCostPrice').required = false;
+    document.getElementById('inventoryStock').required = false;
+    document.getElementById('inventoryFormTitle').textContent = 'Edit Product';
+    document.getElementById('inventorySubmit').textContent = 'Save Changes';
+    document.getElementById('cancelProductEdit').classList.remove('hidden');
+    showSection('inventory');
+    document.getElementById('inventoryName').focus();
+}
+
+function cancelProductEdit() {
+    editingProductId = null;
+    document.getElementById('inventoryForm').reset();
+    document.getElementById('inventoryCostField').classList.remove('hidden');
+    document.getElementById('inventoryStockField').classList.remove('hidden');
+    document.getElementById('inventoryCostPrice').required = true;
+    document.getElementById('inventoryStock').required = true;
+    document.getElementById('inventoryFormTitle').textContent = 'Add Product';
+    document.getElementById('inventorySubmit').textContent = 'Add Product';
+    document.getElementById('cancelProductEdit').classList.add('hidden');
 }
 
 function renderReports() {
@@ -272,7 +309,14 @@ function renderReports() {
 function renderPos() {
     const search = document.getElementById('productSearch').value.toLowerCase();
     const productGrid = document.getElementById('productGrid');
+    const categoryFilter = document.getElementById('categoryFilter');
     const stockPushProduct = document.getElementById('stockPushProduct');
+
+    const selectedCategory = categoryFilter.value;
+    const categories = [...new Set(state.products.map((product) => product.category).filter(Boolean))].sort();
+    categoryFilter.innerHTML = '<option value="">All categories</option>' + categories.map((category) =>
+        `<option value="${category}" ${category === selectedCategory ? 'selected' : ''}>${category}</option>`
+    ).join('');
 
     const currentStockValue = stockPushProduct.value;
     stockPushProduct.innerHTML = state.products.map((p) => `<option value="${p.id}" ${String(p.id) === currentStockValue ? 'selected' : ''}>${p.name} (${p.sku})</option>`).join('');
@@ -280,21 +324,34 @@ function renderPos() {
         stockPushProduct.value = String(state.products[0].id);
     }
 
-    const filtered = state.products.filter((p) => p.name.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search));
+        const filtered = state.products.filter((p) =>
+                (!selectedCategory || p.category === selectedCategory) &&
+                (p.name.toLowerCase().includes(search) || p.sku.toLowerCase().includes(search))
+        );
     productGrid.innerHTML = filtered.map((p) => `
     <div class="product-card" onclick="addToCart(${p.id})">
       <strong>${p.name}</strong>
       <div class="small">${p.sku} • ${p.category}</div>
       <div style="margin-top: 6px; font-weight:700;">${formatCurrency(p.price)}</div>
       <div class="small">In stock: ${p.stock}</div>
+            ${p.prescriptionRequired ? '<span class="product-status rx-status">Prescription required</span>' : ''}
+            ${isProductExpired(p) ? '<span class="product-status expired-status">Expired; sale blocked</span>' : ''}
     </div>
   `).join('');
     updateCartUI();
 }
 
+function isProductExpired(product) {
+    return Boolean(product.expiry && product.expiry < new Date().toISOString().slice(0, 10));
+}
+
 function addToCart(productId) {
     const product = state.products.find((p) => p.id === productId);
     if (!product || product.stock <= 0) return;
+    if (isProductExpired(product)) {
+        alert(`${product.name} is expired and cannot be sold.`);
+        return;
+    }
     const existing = cart.find((item) => item.productId === productId);
     if (existing) {
         existing.quantity += 1;
@@ -325,6 +382,9 @@ function updateCartUI() {
     const subtotalEl = document.getElementById('subtotal');
     const taxEl = document.getElementById('tax');
     const totalEl = document.getElementById('total');
+    const needsPrescriptionVerification = items.some((item) => item.product.prescriptionRequired);
+    document.getElementById('prescriptionCheckWrap').classList.toggle('hidden', !needsPrescriptionVerification);
+    if (!needsPrescriptionVerification) document.getElementById('prescriptionVerified').checked = false;
 
     if (!items.length) {
         cartContainer.innerHTML = '<div class="small">Cart is empty</div>';
@@ -440,6 +500,12 @@ async function pushStock() {
 async function checkout() {
     const items = getCartItems();
     if (!items.length) return alert('Cart is empty');
+    if (items.some((item) => item.product.prescriptionRequired) && !document.getElementById('prescriptionVerified').checked) {
+        return alert('A pharmacist must verify a valid prescription before checkout.');
+    }
+    if (items.some((item) => isProductExpired(item.product))) {
+        return alert('Expired medicine cannot be sold. Remove expired items from the cart.');
+    }
 
     const discount = Number(document.getElementById('discountInput').value || 0);
     const paymentMethod = document.getElementById('paymentMethod').value;
@@ -456,13 +522,15 @@ async function checkout() {
             body: JSON.stringify({
                 items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
                 paymentMethod,
-                discount
+                discount,
+                prescriptionVerified: document.getElementById('prescriptionVerified').checked
             })
         });
 
         cart = [];
         document.getElementById('discountInput').value = 0;
         document.getElementById('paymentMethod').value = 'Cash';
+        document.getElementById('prescriptionVerified').checked = false;
         await loadDataFromAPI();
         updateCartUI();
         renderDashboard();
@@ -480,6 +548,7 @@ document.querySelectorAll('.nav-btn').forEach((button) => {
 });
 
 document.getElementById('productSearch').addEventListener('input', renderPos);
+document.getElementById('categoryFilter').addEventListener('change', renderPos);
 document.getElementById('discountInput').addEventListener('input', updateCartUI);
 
 
@@ -491,14 +560,21 @@ document.getElementById('inventoryForm').addEventListener('submit', async (e) =>
         sku: form.get('sku'),
         category: form.get('category'),
         price: Number(form.get('price')),
-        costPrice: Number(form.get('costPrice')),
-        stock: Number(form.get('stock')),
+        prescriptionRequired: Number(form.get('prescriptionRequired')),
         expiry: form.get('expiry')
     };
+    const isEditing = Boolean(editingProductId);
+    if (!isEditing) {
+        payload.costPrice = Number(form.get('costPrice'));
+        payload.stock = Number(form.get('stock'));
+    }
     try {
-        await apiRequest('/products', { method: 'POST', body: JSON.stringify(payload) });
+        await apiRequest(isEditing ? `/products/${editingProductId}` : '/products', {
+            method: isEditing ? 'PUT' : 'POST',
+            body: JSON.stringify(payload)
+        });
         await loadDataFromAPI();
-        e.target.reset();
+        cancelProductEdit();
         renderInventory();
         renderDashboard();
         renderPos();

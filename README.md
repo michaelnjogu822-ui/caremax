@@ -10,4 +10,6 @@ Pharmacy POS with inventory tracking, billing, sales reports, and a navigation a
 
 The Python service uses the standard library and the existing `caremax.db` SQLite database. Set `CAREMAX_DB_PATH` to use a different database file. Product cost must be entered when adding or receiving stock for gross-profit reporting; existing stock without a recorded cost remains excluded from profit until that inventory is replaced. The chat assistant uses built-in navigation and workflow guidance and does not require an external AI service.
 
+The starter catalog adds 25 common medicine entries with sample KSh prices and costs. These are editable reference estimates, not live supplier quotes; verify prices and prescription classifications with the pharmacy's suppliers and qualified staff before use. The POS flags prescription-classified items for pharmacist verification and blocks products whose recorded expiry date has passed.
+
 The original Node service remains available with `npm run start:node`.

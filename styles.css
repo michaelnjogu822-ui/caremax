@@ -309,6 +309,43 @@ textarea {
     display: block;
 }
 
+.product-status {
+    display: inline-block;
+    margin-top: 7px;
+    margin-right: 5px;
+    padding: 4px 7px;
+    border-radius: 4px;
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.rx-status {
+    background: #e8f2e9;
+    color: var(--primary-dark);
+}
+
+.expired-status {
+    background: #fae8e9;
+    color: var(--danger);
+}
+
+.check-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-top: 12px;
+    padding: 10px;
+    background: #f2f7f3;
+    color: var(--text);
+}
+
+.check-row input {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    accent-color: var(--primary);
+}
+
 .cart-item {
     display: grid;
     grid-template-columns: 1fr auto auto;
