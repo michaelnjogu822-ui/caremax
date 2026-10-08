@@ -610,8 +610,9 @@ def create_server(host="127.0.0.1", port=5000):
 def main():
     init_db()
     port = int(os.environ.get("PORT", "5000"))
-    server = create_server(port=port)
-    print(f"CareMax Python server running at http://127.0.0.1:{port}")
+    host = os.environ.get("HOST", "0.0.0.0")
+    server = create_server(host=host, port=port)
+    print(f"CareMax Python server listening on {host}:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
