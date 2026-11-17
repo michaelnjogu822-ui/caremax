@@ -17,7 +17,7 @@ The Node/Vercel deployment uses PostgreSQL. The Python SQLite server remains a l
 
 ## Owner access
 
-On first run in the deployed Node app, create the administrator account from the Staff Login dialog. Use a unique username and a password of at least 12 characters. Passwords are salted PBKDF2 hashes; session tokens are stored as hashes and issued in HttpOnly cookies. No default credentials are configured.
+Before first run in the deployed Node app, set `ADMIN_EMAIL` to the authorized administrator's email and `ADMIN_SETUP_TOKEN` to a random secret of at least 32 characters in Vercel. Initial setup accepts only that email as the first admin username and requires the setup token. Create the account from the Staff Login dialog with a password of at least 12 characters. Passwords are salted PBKDF2 hashes; session tokens are stored as hashes and issued in HttpOnly cookies. No default credentials are configured.
 
 ## Roles
 
@@ -32,7 +32,7 @@ The API enforces each role. Hiding a page in the browser is not used as the acce
 
 1. Create a managed PostgreSQL database with a provider such as Neon or Supabase. Copy its TLS-enabled connection string.
 2. Import this repository into Vercel. The included `vercel.json` deploys the Node API as a Vercel Function and only publishes the app HTML, CSS, and JavaScript.
-3. In Vercel Project Settings → Environment Variables, add `DATABASE_URL` with that PostgreSQL connection string. Set it for Production and Preview. The schema is initialized automatically when the function starts.
+3. In Vercel Project Settings → Environment Variables, add `DATABASE_URL`, `ADMIN_EMAIL`, and a random `ADMIN_SETUP_TOKEN` (at least 32 characters). Set them for Production and Preview. The schema is initialized automatically when the function starts.
 4. Deploy, open the deployment URL, and create the first administrator through the Staff Login dialog. Visit `/api/health` to confirm the database connection.
 
 `npm start` runs the Node app locally and also requires `DATABASE_URL`; `npm run start:python` starts the local SQLite version. Never commit database URLs or production credentials. Vercel cannot use the bundled SQLite file as durable storage.

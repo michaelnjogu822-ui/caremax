@@ -53,6 +53,7 @@ async function refreshAuthStatus() {
     document.getElementById('ownerUsernameField').classList.toggle('hidden', status.authenticated);
     document.getElementById('ownerUsername').readOnly = firstAdminSetup;
     document.getElementById('ownerUsername').disabled = status.authenticated;
+    document.getElementById('adminSetupTokenField').classList.toggle('hidden', !firstAdminSetup);
 }
 
 async function apiRequest(path, options = {}) {
@@ -173,9 +174,11 @@ async function validateOwnerLogin() {
     error.style.display = 'none';
     try {
         const endpoint = firstAdminSetup ? '/auth/setup' : '/auth/login';
-        const result = await apiRequest(endpoint, { method: 'POST', body: JSON.stringify({ username, password }) });
+        const setupToken = firstAdminSetup ? document.getElementById('adminSetupToken').value : undefined;
+        const result = await apiRequest(endpoint, { method: 'POST', body: JSON.stringify({ username, password, setupToken }) });
         ownerLoggedIn = true;
         currentUserRole = result.user?.role || 'admin';
+        document.getElementById('adminSetupToken').value = '';
         hideAuthModal();
         updateAuthUI();
         if (pendingOwnerSection) {

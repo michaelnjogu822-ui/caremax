@@ -123,6 +123,12 @@ app.get('/api/auth/status', async (req, res) => {
 app.post('/api/auth/setup', async (req, res) => {
     const designatedAdmin = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
     if (!designatedAdmin) return res.status(503).json({ error: 'Initial administrator email is not configured by the deployment owner' });
+    const setupToken = String(req.body.setupToken || '');
+    const configuredToken = String(process.env.ADMIN_SETUP_TOKEN || '');
+    if (configuredToken.length < 32) return res.status(503).json({ error: 'Initial administrator setup token is not configured' });
+    const providedHash = crypto.createHash('sha256').update(setupToken).digest();
+    const configuredHash = crypto.createHash('sha256').update(configuredToken).digest();
+    if (!crypto.timingSafeEqual(providedHash, configuredHash)) return res.status(403).json({ error: 'Invalid administrator setup token' });
     const username = String(req.body.username || designatedAdmin).trim().toLowerCase();
     const password = String(req.body.password || '');
     if (username !== designatedAdmin) return res.status(403).json({ error: 'Only the designated administrator can complete initial setup' });

@@ -3,3 +3,4 @@ caremax.db
 .env
 .env.*
 !.env.example
+.vercel
