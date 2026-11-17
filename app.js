@@ -426,8 +426,8 @@ function updateCartUI() {
 
     const subtotal = items.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
     const discount = Number(document.getElementById('discountInput').value || 0);
-    const tax = subtotal * 0.08;
-    const discountedTotal = subtotal - (subtotal * discount / 100) + tax;
+    const tax = 0;
+    const discountedTotal = Math.round(subtotal - (subtotal * discount / 100) + tax);
     subtotalEl.textContent = formatCurrency(subtotal);
     taxEl.textContent = formatCurrency(tax);
     totalEl.textContent = formatCurrency(discountedTotal);
@@ -463,10 +463,10 @@ function cancelStkPush() {
 
 function confirmStkPush() {
     const input = document.getElementById('stkPhoneInput');
-    const phone = input.value.trim();
+    const phone = input.value.trim().replace(/[\s()+-]/g, '');
 
-    if (!/^254[0-9]{9}$/.test(phone)) {
-        alert('Please enter a valid Kenyan phone number starting with 254.');
+    if (!/^(?:0[17]\d{8}|254[17]\d{8})$/.test(phone)) {
+        alert('Enter a valid Kenyan M-Pesa number, for example 0712345678 or 254712345678.');
         return;
     }
 
@@ -529,14 +529,48 @@ async function checkout() {
     const discount = Number(document.getElementById('discountInput').value || 0);
     const paymentMethod = document.getElementById('paymentMethod').value;
 
-    if (paymentMethod === 'Mobile Money') {
+    let result;
+    if (paymentMethod === 'M-Pesa') {
         const phone = await promptForStkPushPhone();
         if (!phone) return;
-        alert(`STK push sent to ${phone}. The customer will enter their PIN on the phone to complete payment.`);
-    }
-
-    try {
-        const result = await apiRequest('/sales', {
+        try {
+            const request = await apiRequest('/payments/mpesa/stkpush', {
+                method: 'POST',
+                body: JSON.stringify({
+                    items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+                    discount,
+                    phone,
+                    prescriptionVerified: document.getElementById('prescriptionVerified').checked
+                })
+            });
+            alert(`M-Pesa prompt sent to a number ending ${request.phoneLast4}. Ask the customer to enter their PIN on their phone.`);
+            for (let i = 0; i < 30; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 3000));
+                const status = await apiRequest(`/payments/mpesa/${request.paymentId}`);
+                if (status.status === 'SUCCESS') {
+                    result = { saleId: status.saleId, invoiceId: status.invoiceId, total: status.amount };
+                    break;
+                }
+                if (status.status === 'FAILED') {
+                    alert(status.message || 'M-Pesa payment was not completed.');
+                    return;
+                }
+                if (status.status === 'REVIEW') {
+                    alert('Safaricom reported a payment that needs reconciliation. Contact the administrator before issuing another prompt.');
+                    return;
+                }
+            }
+            if (!result) {
+                alert('Payment is still pending. Do not start another prompt; check the payment status or contact the administrator.');
+                return;
+            }
+        } catch (error) {
+            alert(error.message);
+            return;
+        }
+    } else {
+      try {
+        result = await apiRequest('/sales', {
             method: 'POST',
             body: JSON.stringify({
                 items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
@@ -545,7 +579,13 @@ async function checkout() {
                 prescriptionVerified: document.getElementById('prescriptionVerified').checked
             })
         });
+      } catch (error) {
+        alert(error.message);
+        return;
+      }
+    }
 
+    try {
         cart = [];
         document.getElementById('discountInput').value = 0;
         document.getElementById('paymentMethod').value = 'Cash';
@@ -556,7 +596,7 @@ async function checkout() {
         renderBilling();
         renderReports();
         renderPos();
-        alert(`Sale completed successfully. Receipt: ${result.saleId}`);
+        alert(`Sale completed successfully. Receipt: ${result.saleId}${paymentMethod === 'M-Pesa' ? ` · M-Pesa receipt confirmed` : ''}`);
     } catch (error) {
         alert(error.message);
     }

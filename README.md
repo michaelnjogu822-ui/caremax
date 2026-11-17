@@ -36,3 +36,15 @@ The API enforces each role. Hiding a page in the browser is not used as the acce
 4. Deploy, open the deployment URL, and create the first administrator through the Staff Login dialog. Visit `/api/health` to confirm the database connection.
 
 `npm start` runs the Node app locally and also requires `DATABASE_URL`; `npm run start:python` starts the local SQLite version. Never commit database URLs or production credentials. Vercel cannot use the bundled SQLite file as durable storage.
+
+## Kenyan starter catalog
+
+The PostgreSQL app seeds a broad Kenyan chemist starter catalog on first deployment. Seeded entries have zero stock and no expiry date; enter real supplier cost, received quantities, and batch expiry dates when stock is received. KSh prices are editable reference estimates, not live supplier quotes. Kenyan retail medicine prices vary by brand, pack size, county, and pharmacy; compare them with current supplier invoices and local retail prices before trading. Online examples include [ePharmacy Kenya](https://www.epharmacyke.com/shop/) and [AfyaCare Pharmacy](https://afyacare.mobkazi.com/pharmacy/category/medicines-treatments). A national sector report documents substantial price variation, so the starter values should not be treated as regulated prices. Enter the final customer price in each product's price field and include any applicable tax there; the checkout does not add a blanket tax percentage.
+
+Prescription-marked items require a pharmacist or admin to complete the prescription check. The catalog intentionally excludes controlled drugs and cold-chain medicines that need additional regulatory and temperature-control workflows.
+
+## Safaricom M-Pesa STK Push
+
+Checkout sends the customer's Kenyan number to the server, which requests an M-Pesa Express/STK prompt through Safaricom Daraja. The customer enters their PIN on their phone. CareMax records the sale and invoice only after the callback confirms the receipt, amount, and payer number; stock is reserved while the prompt is pending and restored after a failed payment. The PIN never enters the app. See Safaricom's [Daraja developer portal](https://developer.safaricom.co.ke/apis/MpesaExpressSimulate).
+
+Set these sensitive Production environment variables in Vercel after creating and approving a Daraja app: `MPESA_ENV` (`sandbox` until acceptance testing, then `production`), `MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET`, `MPESA_SHORTCODE`, `MPESA_PASSKEY`, `MPESA_TRANSACTION_TYPE` (`CustomerPayBillOnline` for PayBill or `CustomerBuyGoodsOnline` for a supported Till), `MPESA_CALLBACK_BASE_URL` (the public HTTPS CareMax origin), and `MPESA_CALLBACK_TOKEN` (a random secret of at least 32 characters). Register the generated callback URL `/api/payments/mpesa/callback/<MPESA_CALLBACK_TOKEN>` with the Daraja app. Safaricom must accept the callback URL and provide production credentials before live collections can succeed. Never use sandbox credentials for customer payments.

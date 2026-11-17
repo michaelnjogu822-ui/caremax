@@ -151,7 +151,7 @@
                             <div id="cartItems"></div>
                             <div class="total-box">
                                 <div class="small">Subtotal: <span id="subtotal">0.00</span></div>
-                                <div class="small">Tax (8%): <span id="tax">0.00</span></div>
+                                <div class="small">Tax adjustment (include applicable tax in item price): <span id="tax">0.00</span></div>
                                 <h3 class="margin-8-0">Total: <span id="total">0.00</span></h3>
                                 <div class="form-grid">
                                     <div>
@@ -159,7 +159,7 @@
                                         <select id="paymentMethod" name="paymentMethod">
                                             <option>Cash</option>
                                             <option>Card</option>
-                                            <option>Mobile Money</option>
+                                            <option value="M-Pesa">M-Pesa (Safaricom)</option>
                                             <option>Insurance</option>
                                         </select>
                                     </div>
@@ -314,14 +314,13 @@
 
     <div id="stkPushModal" class="modal hidden">
         <div class="modal-dialog section-card">
-            <h3 class="margin-top-0">STK Push</h3>
-            <p class="small margin-top-0">Enter the customer's phone number to send an STK push. They will
-                enter the PIN on their phone.</p>
+            <h3 class="margin-top-0">M-Pesa payment</h3>
+            <p class="small margin-top-0">Enter the customer's Safaricom number. They will receive a secure payment prompt and enter their M-Pesa PIN on their phone.</p>
             <div><label for="stkPhoneInput">Phone number</label><input id="stkPhoneInput" type="tel" inputmode="tel"
                     placeholder="2547XXXXXXXX" /></div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="cancelStkPush()">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmStkPush()">Send STK Push</button>
+                <button class="btn btn-primary" onclick="confirmStkPush()">Send payment prompt</button>
             </div>
         </div>
     </div>
