@@ -4,13 +4,11 @@
     "description": "CareMax Pharmacy and Medical Center API",
     "main": "server.js",
     "scripts": {
-        "start": "python server.py",
-        "start:node": "node server.js"
+        "start": "node server.js",
+        "start:python": "python server.py"
     },
     "dependencies": {
-        "cors": "^2.8.5",
         "express": "^4.19.0",
-        "pg": "^8.11.0",
-        "sqlite3": "^5.0.0"
+        "pg": "^8.11.0"
     }
 }

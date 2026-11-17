@@ -1,2 +1,5 @@
 node_modules/
 caremax.db
+.env
+.env.*
+!.env.example

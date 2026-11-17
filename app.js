@@ -14,11 +14,9 @@ let editingProductId = null;
 let stkPushResolver = null;
 let pendingOwnerSection = null;
 let currentSection = 'dashboard';
-const DEFAULT_OWNER_PASSWORD = 'caremax123';
-const OWNER_PASSWORD_STORAGE_KEY = 'caremax-owner-password';
-const OWNER_SESSION_KEY = 'caremax-owner-session';
-let ownerPassword = loadOwnerPassword();
-let ownerLoggedIn = loadOwnerSession();
+let ownerLoggedIn = false;
+let firstAdminSetup = false;
+let currentUserRole = null;
 
 function loadLocalState() {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -36,21 +34,25 @@ function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-function loadOwnerPassword() {
-    return localStorage.getItem(OWNER_PASSWORD_STORAGE_KEY) || DEFAULT_OWNER_PASSWORD;
-}
-
-function saveOwnerPassword(password) {
-    localStorage.setItem(OWNER_PASSWORD_STORAGE_KEY, password);
-    ownerPassword = password;
-}
-
-function loadOwnerSession() {
-    return localStorage.getItem(OWNER_SESSION_KEY) === 'true';
-}
-
-function saveOwnerSession() {
-    localStorage.setItem(OWNER_SESSION_KEY, ownerLoggedIn ? 'true' : 'false');
+async function refreshAuthStatus() {
+    let status;
+    try { status = await apiRequest('/auth/status'); }
+    catch (error) { console.warn('CareMax authentication service unavailable:', error.message); status = { authenticated: false, setupRequired: false }; }
+    ownerLoggedIn = status.authenticated;
+    firstAdminSetup = status.setupRequired;
+    currentUserRole = status.role || null;
+    const title = document.querySelector('#authOverlay h2');
+    const description = document.querySelector('#authOverlay .small');
+    const button = document.querySelector('#authOverlay .btn-primary');
+    title.textContent = firstAdminSetup ? 'Create Owner Account' : 'Owner Login';
+    description.textContent = firstAdminSetup
+        ? 'Set a strong owner password. It is stored securely in the CareMax database.'
+        : 'Sign in to manage inventory, billing, reports, and patient records.';
+    button.textContent = firstAdminSetup ? 'Create account' : 'Login';
+    document.getElementById('ownerUsername').value = status.username || status.setupUsername || '';
+    document.getElementById('ownerUsernameField').classList.toggle('hidden', status.authenticated);
+    document.getElementById('ownerUsername').readOnly = firstAdminSetup;
+    document.getElementById('ownerUsername').disabled = status.authenticated;
 }
 
 async function apiRequest(path, options = {}) {
@@ -59,6 +61,10 @@ async function apiRequest(path, options = {}) {
         ...options
     });
     const data = await response.json();
+    if (response.status === 401 && !path.startsWith('/auth/')) {
+        ownerLoggedIn = false;
+        updateAuthUI();
+    }
     if (!response.ok) {
         throw new Error(data.error || 'Request failed');
     }
@@ -67,17 +73,24 @@ async function apiRequest(path, options = {}) {
 
 async function loadDataFromAPI() {
     try {
+        if (!ownerLoggedIn) {
+            state = { ...initialData, products: await apiRequest('/products') };
+            saveState();
+            return;
+        }
+        if (currentUserRole === 'cashier') {
+            state = { ...initialData, products: await apiRequest('/products') };
+            saveState();
+            return;
+        }
         const [products, sales, invoices, reportData] = await Promise.all([
-            apiRequest('/products'),
-            apiRequest('/sales'),
-            apiRequest('/invoices'),
-            apiRequest('/reports')
+            apiRequest('/products'), apiRequest('/sales'), apiRequest('/invoices'), apiRequest('/reports')
         ]);
         state = { products, sales, invoices, reportData };
         saveState();
     } catch (error) {
-        console.warn('API unavailable, loading local fallback:', error.message);
-        state = loadLocalState();
+        console.warn('API unavailable:', error.message);
+        state = ownerLoggedIn ? loadLocalState() : { ...initialData };
     }
 }
 
@@ -112,6 +125,7 @@ function showSection(section) {
     if (section === 'inventory') renderInventory();
     if (section === 'billing') renderBilling();
     if (section === 'reports') renderReports();
+    if (section === 'users') loadUsers();
 }
 
 function isOwnerSection(section) {
@@ -121,8 +135,11 @@ function isOwnerSection(section) {
 function updateAuthUI() {
     document.getElementById('ownerLoginBtn').classList.toggle('hidden', ownerLoggedIn);
     document.getElementById('ownerLogoutBtn').classList.toggle('hidden', !ownerLoggedIn);
+    const isAdmin = currentUserRole === 'admin';
+    document.getElementById('usersNav').classList.toggle('hidden', !isAdmin);
     document.querySelectorAll('.nav-btn[data-owner-only="true"]').forEach((btn) => {
-        if (ownerLoggedIn) {
+        const allowed = ownerLoggedIn && (btn.dataset.section === 'reports' || ['admin', 'pharmacist'].includes(currentUserRole));
+        if (allowed) {
             btn.classList.remove('disabled');
             btn.removeAttribute('disabled');
         } else {
@@ -149,43 +166,38 @@ function hideAuthModal() {
     error.textContent = '';
 }
 
-function validateOwnerLogin() {
+async function validateOwnerLogin() {
     const password = document.getElementById('ownerPassword').value;
-    if (password === ownerPassword) {
+    const username = document.getElementById('ownerUsername').value.trim() || 'admin';
+    const error = document.getElementById('authError');
+    error.style.display = 'none';
+    try {
+        const endpoint = firstAdminSetup ? '/auth/setup' : '/auth/login';
+        const result = await apiRequest(endpoint, { method: 'POST', body: JSON.stringify({ username, password }) });
         ownerLoggedIn = true;
-        saveOwnerSession();
+        currentUserRole = result.user?.role || 'admin';
         hideAuthModal();
         updateAuthUI();
-        alert('Owner access granted. Restricted sections are now unlocked.');
         if (pendingOwnerSection) {
-            const nextSection = pendingOwnerSection;
+            const next = pendingOwnerSection;
             pendingOwnerSection = null;
-            showSection(nextSection);
+            showSection(next);
         }
-        if (ownerPassword === DEFAULT_OWNER_PASSWORD) {
-            requestOwnerPasswordChange();
-        }
-    } else {
-        const error = document.getElementById('authError');
+        await loadDataFromAPI();
+        renderDashboard(); renderInventory(); renderBilling(); renderReports();
+    } catch (e) {
         error.style.display = 'block';
-        error.textContent = 'Invalid password. Please try again.';
+        error.textContent = e.message;
     }
 }
 
-function requestOwnerPasswordChange() {
-    const newPassword = prompt('Default owner password detected. Enter a new owner password to secure CareMax Pharmacy:');
-    if (newPassword && newPassword.trim()) {
-        saveOwnerPassword(newPassword.trim());
-        alert('Owner password updated successfully.');
-    } else {
-        alert('Owner password not changed. Default password remains active.');
-    }
-}
-
-function logoutOwner() {
+async function logoutOwner() {
+    try { await apiRequest('/auth/logout', { method: 'POST', body: '{}' }); } catch (e) { console.warn(e); }
     ownerLoggedIn = false;
-    saveOwnerSession();
+    currentUserRole = null;
+    await loadDataFromAPI();
     updateAuthUI();
+    renderDashboard(); renderPos();
     if (isOwnerSection(currentSection)) {
         showSection('dashboard');
     }
@@ -498,6 +510,10 @@ async function pushStock() {
 }
 
 async function checkout() {
+    if (!ownerLoggedIn) {
+        showAuthModal();
+        return;
+    }
     const items = getCartItems();
     if (!items.length) return alert('Cart is empty');
     if (items.some((item) => item.product.prescriptionRequired) && !document.getElementById('prescriptionVerified').checked) {
@@ -584,7 +600,43 @@ document.getElementById('inventoryForm').addEventListener('submit', async (e) =>
     }
 });
 
+async function loadUsers() {
+    if (currentUserRole !== 'admin') return;
+    try {
+        const users = await apiRequest('/users');
+        document.getElementById('usersTable').innerHTML = users.map((user) => `<tr>
+          <td>${escapeHtml(user.username)}</td><td>${escapeHtml(user.role)}</td>
+          <td>${user.active ? 'Active' : 'Disabled'}</td><td>${new Date(user.created_at).toLocaleDateString()}</td>
+          <td>${String(user.id) === String(users.find((u) => u.username === document.getElementById('ownerUsername').value)?.id) ? 'Current administrator' : `<select aria-label="Role for ${escapeHtml(user.username)}" onchange="changeUserRole(${user.id}, this.value)"><option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option><option value="pharmacist" ${user.role === 'pharmacist' ? 'selected' : ''}>Pharmacist</option><option value="cashier" ${user.role === 'cashier' ? 'selected' : ''}>Cashier</option><option value="viewer" ${user.role === 'viewer' ? 'selected' : ''}>Viewer</option></select><button class="btn btn-secondary btn-small" onclick="toggleUser(${user.id}, ${!user.active})">${user.active ? 'Disable' : 'Enable'}</button>`}</td>
+        </tr>`).join('');
+    } catch (error) { document.getElementById('userManagementMessage').textContent = error.message; }
+}
+
+function escapeHtml(value) {
+    const node = document.createElement('span'); node.textContent = String(value ?? ''); return node.innerHTML;
+}
+
+async function toggleUser(id, active) {
+    try { await apiRequest(`/users/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }); await loadUsers(); }
+    catch (error) { document.getElementById('userManagementMessage').textContent = error.message; }
+}
+
+async function changeUserRole(id, role) {
+    try { await apiRequest(`/users/${id}`, { method: 'PATCH', body: JSON.stringify({ role }) }); await loadUsers(); }
+    catch (error) { document.getElementById('userManagementMessage').textContent = error.message; await loadUsers(); }
+}
+
+document.getElementById('createUserForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const message = document.getElementById('userManagementMessage'); message.textContent = '';
+    try {
+        await apiRequest('/users', { method: 'POST', body: JSON.stringify({ username: document.getElementById('newUsername').value.trim(), password: document.getElementById('newUserPassword').value, role: document.getElementById('newUserRole').value }) });
+        event.target.reset(); message.textContent = 'User created.'; await loadUsers();
+    } catch (error) { message.textContent = error.message; }
+});
+
 async function bootstrap() {
+    await refreshAuthStatus();
     await loadDataFromAPI();
     updateAuthUI();
     renderDashboard();

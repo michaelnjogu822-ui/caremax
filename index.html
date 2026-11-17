@@ -18,7 +18,7 @@
             <div class="topbar-actions">
                 <button onclick="showSection('dashboard')">Dashboard</button>
                 <button onclick="showSection('pos')">Open POS</button>
-                <button class="btn btn-warning" id="ownerLoginBtn" onclick="showAuthModal()">Owner Login</button>
+                <button class="btn btn-warning" id="ownerLoginBtn" onclick="showAuthModal()">Staff Login</button>
                 <button class="btn btn-secondary hidden" id="ownerLogoutBtn" onclick="logoutOwner()">Logout</button>
             </div>
         </header>
@@ -30,9 +30,22 @@
                 <button class="nav-btn" data-section="inventory" data-owner-only="true">Inventory</button>
                 <button class="nav-btn" data-section="billing" data-owner-only="true">Billing</button>
                 <button class="nav-btn" data-section="reports" data-owner-only="true">Reports</button>
+                <button class="nav-btn hidden" id="usersNav" data-section="users" data-admin-only="true" onclick="loadUsers()">User Management</button>
             </aside>
 
             <main class="content">
+                <section id="users-section" class="section-card hidden">
+                    <div class="panel-header"><div><span class="pill">Administrator access</span><h2 class="margin-6-0-0">User Management</h2></div></div>
+                    <p class="small">Create staff accounts and assign the least access they need. Passwords must have at least 12 characters.</p>
+                    <form id="createUserForm" class="form-grid">
+                        <div><label for="newUsername">Username</label><input id="newUsername" required minlength="3" maxlength="64" autocomplete="off" /></div>
+                        <div><label for="newUserPassword">Temporary password</label><input id="newUserPassword" required minlength="12" type="password" autocomplete="new-password" /></div>
+                        <div><label for="newUserRole">Role</label><select id="newUserRole"><option value="cashier">Cashier — checkout</option><option value="pharmacist">Pharmacist — patient and inventory work</option><option value="viewer">Viewer — read reports</option></select></div>
+                        <div class="form-actions"><button class="btn btn-primary" type="submit">Create user</button></div>
+                    </form>
+                    <div id="userManagementMessage" class="small" aria-live="polite"></div>
+                    <div class="table-wrap"><table><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Created</th><th>Access</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+                </section>
                 <section id="dashboard-section" class="section-card">
                     <div class="panel-header">
                         <div>
@@ -321,9 +334,13 @@
                     <p class="small margin-top-0">Enter the owner password to unlock Inventory, Billing, and Reports.</p>
                 </div>
             </div>
+            <div id="ownerUsernameField">
+                <label for="ownerUsername">Username</label>
+                <input id="ownerUsername" type="text" autocomplete="username" placeholder="admin" />
+            </div>
             <div>
                 <label for="ownerPassword">Password</label>
-                <input id="ownerPassword" type="password" placeholder="Enter owner password" />
+                <input id="ownerPassword" type="password" autocomplete="current-password" placeholder="Enter password" minlength="12" />
             </div>
             <div id="authError" class="small error-text"></div>
             <div class="modal-actions">
