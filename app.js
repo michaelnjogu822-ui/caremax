@@ -17,6 +17,7 @@ let currentSection = 'dashboard';
 let ownerLoggedIn = false;
 let firstAdminSetup = false;
 let currentUserRole = null;
+let authStatusAvailable = false;
 
 function loadLocalState() {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -36,19 +37,28 @@ function saveState() {
 
 async function refreshAuthStatus() {
     let status;
-    try { status = await apiRequest('/auth/status'); }
-    catch (error) { console.warn('CareMax authentication service unavailable:', error.message); status = { authenticated: false, setupRequired: false }; }
+    try {
+        status = await apiRequest('/auth/status');
+        authStatusAvailable = true;
+    } catch (error) {
+        console.warn('CareMax authentication service unavailable:', error.message);
+        authStatusAvailable = false;
+        status = { authenticated: false, setupRequired: false };
+    }
     ownerLoggedIn = status.authenticated;
     firstAdminSetup = status.setupRequired;
     currentUserRole = status.role || null;
     const title = document.querySelector('#authOverlay h2');
     const description = document.querySelector('#authOverlay .small');
     const button = document.querySelector('#authOverlay .btn-primary');
-    title.textContent = firstAdminSetup ? 'Create Owner Account' : 'Owner Login';
-    description.textContent = firstAdminSetup
+    title.textContent = !authStatusAvailable ? 'Service Unavailable' : firstAdminSetup ? 'Create Owner Account' : 'Owner Login';
+    description.textContent = !authStatusAvailable
+        ? 'CareMax could not check whether an account exists. Refresh the page before trying again.'
+        : firstAdminSetup
         ? 'Set a strong owner password. It is stored securely in the CareMax database.'
         : 'Sign in to manage inventory, billing, reports, and patient records.';
-    button.textContent = firstAdminSetup ? 'Create account' : 'Login';
+    button.textContent = !authStatusAvailable ? 'Try again after refresh' : firstAdminSetup ? 'Create account' : 'Login';
+    button.disabled = !authStatusAvailable;
     document.getElementById('ownerUsername').value = status.username || status.setupUsername || '';
     document.getElementById('ownerUsernameField').classList.toggle('hidden', status.authenticated);
     document.getElementById('ownerUsername').readOnly = firstAdminSetup;
@@ -167,6 +177,7 @@ function hideAuthModal() {
 }
 
 async function validateOwnerLogin() {
+    if (!authStatusAvailable) return;
     const password = document.getElementById('ownerPassword').value;
     const username = document.getElementById('ownerUsername').value.trim() || 'admin';
     const error = document.getElementById('authError');
