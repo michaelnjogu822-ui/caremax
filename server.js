@@ -223,14 +223,10 @@ app.get('/api/auth/status', async (req, res) => {
     res.json({ setupRequired: rows[0].count === 0, setupUsername: rows[0].count === 0 ? (process.env.ADMIN_EMAIL || null) : null, authenticated: Boolean(req.user), username: req.user?.username || null, role: req.user?.role || null });
 });
 app.post('/api/auth/setup', async (req, res) => {
+    const requestHost=String(req.headers.host||'').split(':')[0].toLowerCase();
+    if (process.env.NODE_ENV === 'production' && (process.env.VERCEL !== '1' || !requestHost.endsWith('.vercel.app'))) return res.status(403).json({ error: 'Initial setup is available only through the protected CareMax Vercel deployment' });
     const designatedAdmin = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
     if (!designatedAdmin) return res.status(503).json({ error: 'Initial administrator email is not configured by the deployment owner' });
-    const setupToken = String(req.body.setupToken || '');
-    const configuredToken = String(process.env.ADMIN_SETUP_TOKEN || '');
-    if (configuredToken.length < 32) return res.status(503).json({ error: 'Initial administrator setup token is not configured' });
-    const providedHash = crypto.createHash('sha256').update(setupToken).digest();
-    const configuredHash = crypto.createHash('sha256').update(configuredToken).digest();
-    if (!crypto.timingSafeEqual(providedHash, configuredHash)) return res.status(403).json({ error: 'Invalid administrator setup token' });
     const username = String(req.body.username || designatedAdmin).trim().toLowerCase();
     const password = String(req.body.password || '');
     if (username !== designatedAdmin) return res.status(403).json({ error: 'Only the designated administrator can complete initial setup' });
@@ -390,13 +386,19 @@ app.post('/api/products', requireRole('admin','pharmacist'), async (req, res) =>
 });
 app.put('/api/products/:id/stock', requireRole('admin','pharmacist'), async (req, res) => {
     const quantity = Number(req.body.quantity);
-    if (!Number.isInteger(quantity) || quantity <= 0) return res.status(400).json({ error: 'Quantity must be a positive integer' });
+    const unitCost = Number(req.body.unitCost);
+    if (!Number.isInteger(quantity) || quantity <= 0 || !Number.isFinite(unitCost) || unitCost < 0) return res.status(400).json({ error: 'Enter a positive whole-number quantity and a valid supplier unit cost' });
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-        const { rows } = await client.query('UPDATE products SET stock=stock+$1 WHERE id=$2 RETURNING *', [quantity,req.params.id]);
-        if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Product not found' }); }
-        await client.query('INSERT INTO stock_receipts ("productId",quantity,"unitCost","createdBy") VALUES ($1,$2,$3,$4)', [req.params.id,quantity,req.body.unitCost ?? null,req.user.id]);
+        const { rows:currentRows } = await client.query('SELECT * FROM products WHERE id=$1 FOR UPDATE', [req.params.id]);
+        const current=currentRows[0];
+        if (!current) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Product not found' }); }
+        const oldStock=Number(current.stock), newStock=oldStock+quantity;
+        const oldCost=current.costPrice===null?null:Number(current.costPrice);
+        const weightedCost=oldStock===0?unitCost:(oldCost===null?null:((oldStock*oldCost)+(quantity*unitCost))/newStock);
+        const { rows } = await client.query('UPDATE products SET stock=$1,"costPrice"=$2 WHERE id=$3 RETURNING *', [newStock,weightedCost,req.params.id]);
+        await client.query('INSERT INTO stock_receipts ("productId",quantity,"unitCost","createdBy") VALUES ($1,$2,$3,$4)', [req.params.id,quantity,unitCost,req.user.id]);
         await client.query('COMMIT'); res.json(rows[0]);
     } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
 });

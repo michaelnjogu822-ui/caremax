@@ -98,6 +98,7 @@
                                             <th>Item</th>
                                             <th>Stock</th>
                                             <th>Category</th>
+                                            <th>Action</th>
                                         </tr>
                                     </thead>
                                     <tbody id="lowStockTable"></tbody>
@@ -124,26 +125,6 @@
                                 </select></div>
                             </div>
                             <p class="small">Sample KSh prices are editable reference estimates. Confirm local supplier prices before trading.</p>
-                            <div class="section-card section-highlight">
-                                <h3 class="margin-reset margin-bottom-8">Stock Push</h3>
-                                <div class="form-grid">
-                                    <div>
-                                        <label for="stockPushProduct">Product</label>
-                                        <select id="stockPushProduct" name="stockPushProduct"></select>
-                                    </div>
-                                    <div>
-                                        <label for="stockPushQty">Quantity</label>
-                                        <input id="stockPushQty" name="stockPushQty" type="number" min="1" value="1" />
-                                    </div>
-                                    <div>
-                                        <label for="stockPushCost">Supplier unit cost (KSh)</label>
-                                        <input id="stockPushCost" name="stockPushCost" type="number" min="0" step="0.01" required />
-                                    </div>
-                                </div>
-                                <p class="small">Recorded costs are used to calculate gross profit.</p>
-                                <button class="btn btn-primary margin-top-10" onclick="pushStock()">Push
-                                    Stock</button>
-                            </div>
                             <div class="product-grid" id="productGrid"></div>
                         </div>
                         <div class="section-card">
@@ -186,6 +167,16 @@
                             <span class="pill">Stock control</span>
                             <h2 class="margin-6-0-0">Inventory</h2>
                         </div>
+                    </div>
+                    <div id="stockReceiptPanel" class="section-card section-highlight margin-bottom-12">
+                        <h3 class="margin-reset margin-bottom-8">Receive or restock products</h3>
+                        <p class="small">Select the delivery item, enter the received quantity and supplier unit cost, then record the receipt. This increases on-hand stock and updates its weighted-average cost.</p>
+                        <div class="form-grid">
+                            <div><label for="stockPushProduct">Product</label><select id="stockPushProduct" name="stockPushProduct"></select></div>
+                            <div><label for="stockPushQty">Quantity received</label><input id="stockPushQty" name="stockPushQty" type="number" min="1" step="1" value="1" /></div>
+                            <div><label for="stockPushCost">Supplier unit cost (KSh)</label><input id="stockPushCost" name="stockPushCost" type="number" min="0" step="0.01" required /></div>
+                        </div>
+                        <button class="btn btn-primary margin-top-10" onclick="pushStock()">Record stock received</button>
                     </div>
                     <div class="grid-2">
                         <div class="section-card">
@@ -336,10 +327,6 @@
             <div id="ownerUsernameField">
                 <label for="ownerUsername">Username</label>
                 <input id="ownerUsername" type="text" autocomplete="username" placeholder="admin" />
-            </div>
-            <div id="adminSetupTokenField" class="hidden">
-                <label for="adminSetupToken">One-time setup token</label>
-                <input id="adminSetupToken" type="password" autocomplete="one-time-code" placeholder="Enter setup token" />
             </div>
             <div>
                 <label for="ownerPassword">Password</label>

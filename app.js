@@ -53,7 +53,6 @@ async function refreshAuthStatus() {
     document.getElementById('ownerUsernameField').classList.toggle('hidden', status.authenticated);
     document.getElementById('ownerUsername').readOnly = firstAdminSetup;
     document.getElementById('ownerUsername').disabled = status.authenticated;
-    document.getElementById('adminSetupTokenField').classList.toggle('hidden', !firstAdminSetup);
 }
 
 async function apiRequest(path, options = {}) {
@@ -174,11 +173,9 @@ async function validateOwnerLogin() {
     error.style.display = 'none';
     try {
         const endpoint = firstAdminSetup ? '/auth/setup' : '/auth/login';
-        const setupToken = firstAdminSetup ? document.getElementById('adminSetupToken').value : undefined;
-        const result = await apiRequest(endpoint, { method: 'POST', body: JSON.stringify({ username, password, setupToken }) });
+        const result = await apiRequest(endpoint, { method: 'POST', body: JSON.stringify({ username, password }) });
         ownerLoggedIn = true;
         currentUserRole = result.user?.role || 'admin';
-        document.getElementById('adminSetupToken').value = '';
         hideAuthModal();
         updateAuthUI();
         if (pendingOwnerSection) {
@@ -233,11 +230,24 @@ function renderDashboard() {
         .filter((p) => p.stock < 10)
         .map((p) => `
       <tr>
-        <td>${p.name}</td>
+        <td>${escapeHtml(p.name)}</td>
         <td>${p.stock}</td>
-        <td>${p.category}</td>
+        <td>${escapeHtml(p.category)}</td>
+        <td>${['admin','pharmacist'].includes(currentUserRole) ? `<button class="btn btn-secondary btn-small" onclick="restockProduct(${p.id})">Restock</button>` : ''}</td>
       </tr>
     `).join('');
+}
+
+function restockProduct(productId) {
+    if (!['admin','pharmacist'].includes(currentUserRole)) {
+        showAuthModal();
+        return;
+    }
+    showSection('inventory');
+    const selector=document.getElementById('stockPushProduct');
+    selector.value=String(productId);
+    document.getElementById('stockReceiptPanel').scrollIntoView({behavior:'smooth',block:'center'});
+    document.getElementById('stockPushQty').focus();
 }
 
 function renderInventory() {
@@ -251,7 +261,7 @@ function renderInventory() {
     <td>${p.prescriptionRequired ? 'Prescription required' : 'Non-prescription'}</td>
       <td>${p.stock}</td>
       <td>${p.expiry || 'N/A'}</td>
-            <td><button class="btn btn-secondary btn-small" onclick="editProduct(${p.id})">Edit</button></td>
+            <td><button class="btn btn-secondary btn-small" onclick="restockProduct(${p.id})">Restock</button> <button class="btn btn-secondary btn-small" onclick="editProduct(${p.id})">Edit</button></td>
     </tr>
   `).join('');
 }
@@ -270,7 +280,7 @@ function renderBilling() {
 }
 
 function editProduct(productId) {
-    const product = state.products.find((item) => item.id === productId);
+    const product = state.products.find((item) => String(item.id) === String(productId));
     if (!product) return;
     editingProductId = product.id;
     document.getElementById('inventoryProductId').value = product.id;
@@ -361,32 +371,32 @@ function isProductExpired(product) {
 }
 
 function addToCart(productId) {
-    const product = state.products.find((p) => p.id === productId);
+    const product = state.products.find((p) => String(p.id) === String(productId));
     if (!product || product.stock <= 0) return;
     if (isProductExpired(product)) {
         alert(`${product.name} is expired and cannot be sold.`);
         return;
     }
-    const existing = cart.find((item) => item.productId === productId);
+    const existing = cart.find((item) => String(item.productId) === String(product.id));
     if (existing) {
         existing.quantity += 1;
     } else {
-        cart.push({ productId, quantity: 1 });
+        cart.push({ productId: product.id, quantity: 1 });
     }
     updateCartUI();
 }
 
 function changeQty(productId, delta) {
-    const item = cart.find((i) => i.productId === productId);
+    const item = cart.find((i) => String(i.productId) === String(productId));
     if (!item) return;
     item.quantity += delta;
-    if (item.quantity <= 0) cart = cart.filter((i) => i.productId !== productId);
+    if (item.quantity <= 0) cart = cart.filter((i) => String(i.productId) !== String(productId));
     updateCartUI();
 }
 
 function getCartItems() {
     return cart.map((item) => {
-        const product = state.products.find((p) => p.id === item.productId);
+        const product = state.products.find((p) => String(p.id) === String(item.productId));
         return { ...item, product };
     }).filter((item) => item.product);
 }
@@ -434,7 +444,7 @@ function updateCartUI() {
 }
 
 function removeFromCart(productId) {
-    cart = cart.filter((i) => i.productId !== productId);
+    cart = cart.filter((i) => String(i.productId) !== String(productId));
     updateCartUI();
 }
 
@@ -487,9 +497,10 @@ function promptForStkPushPhone() {
 async function pushStock() {
     const productId = Number(document.getElementById('stockPushProduct').value);
     const quantity = Number(document.getElementById('stockPushQty').value);
-    const unitCost = Number(document.getElementById('stockPushCost').value);
+    const unitCostText = document.getElementById('stockPushCost').value.trim();
+    const unitCost = Number(unitCostText);
 
-    if (!productId || !Number.isInteger(quantity) || quantity <= 0 || !Number.isFinite(unitCost) || unitCost < 0) {
+    if (!productId || !Number.isInteger(quantity) || quantity <= 0 || !unitCostText || !Number.isFinite(unitCost) || unitCost < 0) {
         alert('Choose a product, enter a whole-number quantity, and enter its supplier unit cost.');
         return;
     }
@@ -506,7 +517,7 @@ async function pushStock() {
         renderInventory();
         renderDashboard();
         renderReports();
-        alert('Stock updated successfully.');
+        alert('Stock receipt recorded and on-hand quantity updated.');
     } catch (error) {
         alert(error.message);
     }
