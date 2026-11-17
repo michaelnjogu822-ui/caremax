@@ -27,8 +27,17 @@ const SESSION_SECONDS = 8 * 60 * 60;
 const PASSWORD_ITERATIONS = 310000;
 const ROLES = ['admin', 'pharmacist', 'cashier', 'viewer'];
 const validUsername = (value) => /^[a-zA-Z0-9._-]{3,64}$/.test(String(value || '')) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''));
-const appReady = pool ? initializeDatabase() : Promise.resolve();
-appReady.catch(() => {});
+let appReady = null;
+function ensureDatabaseReady() {
+    if (!pool) return Promise.resolve();
+    if (!appReady) {
+        appReady = initializeDatabase().catch(error => {
+            appReady = null;
+            throw error;
+        });
+    }
+    return appReady;
+}
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
@@ -74,10 +83,12 @@ async function initializeDatabase() {
         `CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at)`,
         `CREATE INDEX IF NOT EXISTS sales_created_at_idx ON sales("createdAt")`
     ];
-    for (const statement of statements) await pool.query(statement);
     const client = await pool.connect();
+    let transactionStarted = false;
     try {
+        for (const statement of statements) await client.query(statement);
         await client.query('BEGIN');
+        transactionStarted = true;
         const migration = await client.query(`INSERT INTO app_migrations (name) VALUES ('kenya-retail-catalog-v1') ON CONFLICT DO NOTHING RETURNING name`);
         if (migration.rowCount) {
             const values=starterCatalog.map((_,index)=>{
@@ -87,13 +98,17 @@ async function initializeDatabase() {
             await client.query(`INSERT INTO products (name,sku,category,price,stock,expiry,"costPrice","prescriptionRequired") VALUES ${values} ON CONFLICT (sku) DO NOTHING`,params);
         }
         await client.query('COMMIT');
-    } catch (error) { await client.query('ROLLBACK'); throw error; }
+        transactionStarted = false;
+    } catch (error) {
+        if (transactionStarted) await client.query('ROLLBACK');
+        throw error;
+    }
     finally { client.release(); }
 }
 
 async function currentUser(req, res, next) {
     try {
-        await appReady;
+        await ensureDatabaseReady();
         const token = req.cookies?.[SESSION_COOKIE] || parseCookies(req.headers.cookie)[SESSION_COOKIE];
         if (token) {
             const hash = crypto.createHash('sha256').update(token).digest('hex');
@@ -214,7 +229,7 @@ function errorHandler(error, req, res, next) {
 }
 
 app.get('/api/health', async (req, res) => {
-    try { await appReady; await query('SELECT 1'); res.json({ ok: true, database: 'connected' }); }
+    try { await ensureDatabaseReady(); await query('SELECT 1'); res.json({ ok: true, database: 'connected' }); }
     catch { res.status(503).json({ ok: false, database: 'unavailable' }); }
 });
 app.use('/api', currentUser);
@@ -479,6 +494,6 @@ app.use(errorHandler);
 
 if (require.main === module) {
     const port=process.env.PORT||3000;
-    appReady.then(()=>app.listen(port,()=>console.log(`CareMax API listening on port ${port}`))).catch(error=>{console.error('Database initialization failed:',error);process.exit(1);});
+    ensureDatabaseReady().then(()=>app.listen(port,()=>console.log(`CareMax API listening on port ${port}`))).catch(error=>{console.error('Database initialization failed:',error);process.exit(1);});
 }
 module.exports=app;
