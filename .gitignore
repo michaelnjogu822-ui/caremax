@@ -4,3 +4,7 @@ caremax.db
 .env.*
 !.env.example
 .vercel
+__pycache__/
+.test-tmp/
+.pytest_cache/
+.tmp/

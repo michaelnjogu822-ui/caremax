@@ -465,7 +465,7 @@ app.post('/api/sales', requireRole('admin','pharmacist','cashier'), async (req,r
         const saleId=`SALE-${crypto.randomUUID()}`, invoiceId=`INV-${crypto.randomUUID()}`, now=new Date();
         await client.query('INSERT INTO sales (id,"patientId",amount,"paymentMethod","createdAt",status,"prescriptionVerified","createdBy") VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',[saleId,patientId||null,total,paymentMethod||'Cash',now,'Paid',Boolean(prescriptionVerified),req.user.id]);
         await client.query('INSERT INTO invoices (id,"patientId",total,"paymentMethod",status,"createdAt","createdBy") VALUES ($1,$2,$3,$4,$5,$6,$7)',[invoiceId,patientId||null,total,paymentMethod||'Cash','Paid',now,req.user.id]);
-        for(const {p,q} of checked){ await client.query('UPDATE products SET stock=stock-$1 WHERE id=$2',[q,p.id]); await client.query('INSERT INTO sale_items ("saleId","productId","productName",quantity,"unitPrice","unitCost","lineProfit") VALUES ($1,$2,$3,$4,$5,$6,$7)',[saleId,p.id,p.name,q,p.price,p.costPrice, p.costPrice==null?null:(Number(p.price)-Number(p.costPrice))*q]); }
+        for(const {p,q} of checked){ await client.query('UPDATE products SET stock=stock-$1 WHERE id=$2',[q,p.id]); await client.query('INSERT INTO sale_items ("saleId","productId","productName",quantity,"unitPrice","unitCost","lineProfit") VALUES ($1,$2,$3,$4,$5,$6,$7)',[saleId,p.id,p.name,q,p.price,p.costPrice, p.costPrice==null?null:(Number(p.price)*(1-discountPct/100)-Number(p.costPrice))*q]); }
         await client.query('COMMIT'); res.status(201).json({saleId,invoiceId,total});
     } catch(e){ await client.query('ROLLBACK'); res.status(400).json({error:e.message}); } finally { client.release(); }
 });

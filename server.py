@@ -1,9 +1,14 @@
+import hashlib
+import hmac
 import json
+import math
 import mimetypes
 import os
 import re
 import secrets
 import sqlite3
+import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -62,6 +67,21 @@ def init_db():
     with database() as connection:
         connection.executescript(
             """
+            CREATE TABLE IF NOT EXISTS admin_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                password_salt TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'admin',
+                active INTEGER NOT NULL DEFAULT 1,
+                createdAt TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS admin_sessions (
+                token_hash TEXT PRIMARY KEY,
+                userId INTEGER NOT NULL,
+                expiresAt INTEGER NOT NULL,
+                FOREIGN KEY(userId) REFERENCES admin_users(id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS patients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -138,6 +158,11 @@ def init_db():
         sale_columns = {row["name"] for row in connection.execute("PRAGMA table_info(sales)")}
         if "prescriptionVerified" not in sale_columns:
             connection.execute("ALTER TABLE sales ADD COLUMN prescriptionVerified INTEGER NOT NULL DEFAULT 0")
+        user_columns = {row["name"] for row in connection.execute("PRAGMA table_info(admin_users)")}
+        if "role" not in user_columns:
+            connection.execute("ALTER TABLE admin_users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'")
+        if "active" not in user_columns:
+            connection.execute("ALTER TABLE admin_users ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
         seed_sample_catalog(connection)
 
 
@@ -154,7 +179,6 @@ def seed_sample_catalog(connection):
                 "INSERT INTO stock_receipts (productId, quantity, unitCost, receivedAt) VALUES (?, ?, ?, ?)",
                 (product_id, stock, unit_cost, now_iso()),
             )
-    connection.execute("UPDATE products SET prescriptionRequired = 1 WHERE sku IN ('AMX-250', 'INS-GLA')")
 
 
 def now_iso():
@@ -176,6 +200,128 @@ def int_value(value):
     return parsed
 
 
+SESSION_COOKIE = "caremax_admin_session"
+SESSION_SECONDS = 8 * 60 * 60
+PASSWORD_ITERATIONS = 310_000
+ROLES = ("admin", "pharmacist", "cashier", "viewer")
+MANAGER_ROLES = ("admin", "pharmacist")
+READ_ROLES = ("admin", "pharmacist", "viewer")
+SELL_ROLES = ("admin", "pharmacist", "cashier")
+LOGIN_WINDOW_SECONDS = 5 * 60
+LOGIN_MAX_FAILURES = 5
+DUMMY_SALT = "00" * 16
+
+_login_failures = {}
+_login_lock = threading.Lock()
+
+
+def hash_password(password, salt=None):
+    salt_bytes = bytes.fromhex(salt) if salt else secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt_bytes, PASSWORD_ITERATIONS)
+    return digest.hex(), salt_bytes.hex()
+
+
+def password_matches(password, salt, expected_hash):
+    return hmac.compare_digest(hash_password(password, salt)[0], expected_hash)
+
+
+def session_user(token):
+    if not token:
+        return None
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    with database() as connection:
+        row = connection.execute(
+            "SELECT u.id, u.username, u.role FROM admin_sessions s "
+            "JOIN admin_users u ON u.id = s.userId "
+            "WHERE s.token_hash = ? AND s.expiresAt > ? AND u.active = 1",
+            (token_hash, int(time.time())),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def issue_session(user_id):
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    with database() as connection:
+        connection.execute("DELETE FROM admin_sessions WHERE expiresAt <= ?", (int(time.time()),))
+        connection.execute(
+            "INSERT INTO admin_sessions (token_hash, userId, expiresAt) VALUES (?, ?, ?)",
+            (token_hash, user_id, int(time.time()) + SESSION_SECONDS),
+        )
+    return token
+
+
+def revoke_sessions_for_user(user_id, keep_token=None):
+    keep_hash = hashlib.sha256(keep_token.encode("utf-8")).hexdigest() if keep_token else None
+    with database() as connection:
+        if keep_hash:
+            connection.execute(
+                "DELETE FROM admin_sessions WHERE userId = ? AND token_hash != ?", (user_id, keep_hash)
+            )
+        else:
+            connection.execute("DELETE FROM admin_sessions WHERE userId = ?", (user_id,))
+
+
+def login_blocked(key):
+    now = time.time()
+    with _login_lock:
+        failures = [stamp for stamp in _login_failures.get(key, []) if now - stamp < LOGIN_WINDOW_SECONDS]
+        if failures:
+            _login_failures[key] = failures
+        else:
+            _login_failures.pop(key, None)
+        return len(failures) >= LOGIN_MAX_FAILURES
+
+
+def record_login_failure(key):
+    now = time.time()
+    with _login_lock:
+        if len(_login_failures) > 5_000:
+            for stale in [item for item, stamps in _login_failures.items() if not stamps or now - stamps[-1] > LOGIN_WINDOW_SECONDS]:
+                _login_failures.pop(stale, None)
+        _login_failures.setdefault(key, []).append(now)
+
+
+def clear_login_failures(key):
+    with _login_lock:
+        _login_failures.pop(key, None)
+
+
+def setup_username():
+    return (os.environ.get("ADMIN_EMAIL") or os.environ.get("CAREMAX_ADMIN_EMAIL") or "").strip().lower() or None
+
+
+def auth_status(user):
+    with database() as connection:
+        count = connection.execute("SELECT COUNT(*) FROM admin_users").fetchone()[0]
+    return {
+        "setupRequired": count == 0,
+        "setupUsername": (setup_username() or "admin") if count == 0 else None,
+        "authenticated": user is not None,
+        "username": user["username"] if user else None,
+        "role": user["role"] if user else None,
+    }, 200
+
+
+def authorize(user, roles):
+    if user is None:
+        return response_error("Login required", 401)
+    if user["role"] not in roles:
+        return response_error("Insufficient permissions", 403)
+    return None
+
+
+STATIC_FILES = {"/index.html", "/caremax_system_plan.html", "/app.js", "/styles.css"}
+READ_ROUTES = {
+    "/api/sales": READ_ROLES,
+    "/api/invoices": READ_ROLES,
+    "/api/reports": READ_ROLES,
+    "/api/patients": MANAGER_ROLES,
+    "/api/appointments": MANAGER_ROLES,
+    "/api/users": ("admin",),
+}
+
+
 def get_data(path):
     if path == "/api/health":
         return {"ok": True, "service": "caremax-python"}, 200
@@ -194,6 +340,11 @@ def get_data(path):
             return as_dicts(rows), 200
         if path == "/api/appointments":
             rows = connection.execute("SELECT * FROM appointments ORDER BY date DESC, time DESC").fetchall()
+            return as_dicts(rows), 200
+        if path == "/api/users":
+            rows = connection.execute(
+                "SELECT id, username, role, active, createdAt AS created_at FROM admin_users ORDER BY id"
+            ).fetchall()
             return as_dicts(rows), 200
         if path == "/api/reports":
             patients = connection.execute("SELECT COUNT(*) FROM patients").fetchone()[0]
@@ -299,10 +450,19 @@ def receive_stock(product_id, data):
     return dict(updated), 200
 
 
-def create_sale(data):
+def round_money(value):
+    return int(math.floor(value + 0.5))
+
+
+def create_sale(data, user):
     items = data.get("items")
     if not isinstance(items, list) or not items:
         return response_error("Cart is empty", 400)
+    payment_method = data.get("paymentMethod") or "Cash"
+    if payment_method == "M-Pesa":
+        return response_error("M-Pesa sales must be completed through the Safaricom STK Push flow", 400)
+    if payment_method not in {"Cash", "Card", "Insurance"}:
+        return response_error("Unsupported payment method", 400)
     try:
         discount = float(data.get("discount", 0))
         quantities = {}
@@ -321,7 +481,6 @@ def create_sale(data):
     sale_id = f"SALE-{stamp}-{secrets.token_hex(2)}"
     invoice_id = f"INV-{stamp}-{secrets.token_hex(2)}"
     created_at = now_iso()
-    payment_method = data.get("paymentMethod") or "Cash"
     with database() as connection:
         products = {}
         for product_id, quantity in quantities.items():
@@ -335,11 +494,15 @@ def create_sale(data):
             products[product_id] = product
 
         prescription_items = [product["name"] for product in products.values() if product["prescriptionRequired"]]
-        if prescription_items and data.get("prescriptionVerified") is not True:
+        if prescription_items and not data.get("prescriptionVerified"):
             return response_error("A pharmacist must verify the prescription before selling: " + ", ".join(prescription_items), 400)
+        if prescription_items and user["role"] not in MANAGER_ROLES:
+            return response_error(
+                "A pharmacist or administrator must complete the prescription check for: " + ", ".join(prescription_items), 403
+            )
 
         subtotal = sum(products[product_id]["price"] * quantity for product_id, quantity in quantities.items())
-        total = subtotal - subtotal * discount / 100 + subtotal * 0.08
+        total = round_money(subtotal * (1 - discount / 100))
         connection.execute(
             "INSERT INTO sales (id, patientId, amount, paymentMethod, createdAt, status, prescriptionVerified) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (sale_id, data.get("patientId"), total, payment_method, created_at, "Paid", int(bool(prescription_items))),
@@ -383,6 +546,58 @@ def add_appointment(data):
         )
         appointment = connection.execute("SELECT * FROM appointments WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return dict(appointment), 201
+
+
+def user_row(connection, user_id):
+    return connection.execute(
+        "SELECT id, username, role, active, createdAt AS created_at FROM admin_users WHERE id = ?", (user_id,)
+    ).fetchone()
+
+
+def create_user(data):
+    username = str(data.get("username", "")).strip().lower()
+    password = str(data.get("password", ""))
+    role = str(data.get("role", "")).strip()
+    if role not in ROLES or role == "admin":
+        return response_error(
+            "New users can be assigned pharmacist, cashier, or viewer. Administrators must be promoted by an administrator.", 400
+        )
+    if not username or len(password) < 12:
+        return response_error("Enter a username and a password of at least 12 characters", 400)
+    digest, salt = hash_password(password)
+    try:
+        with database() as connection:
+            cursor = connection.execute(
+                "INSERT INTO admin_users (username, password_hash, password_salt, role, active, createdAt) VALUES (?, ?, ?, ?, 1, ?)",
+                (username, digest, salt, role, now_iso()),
+            )
+            row = user_row(connection, cursor.lastrowid)
+    except sqlite3.IntegrityError:
+        return response_error("Username is already in use", 409)
+    return dict(row), 201
+
+
+def update_user(user_id, data, current_user, current_token):
+    role = data.get("role")
+    active = data.get("active")
+    if role is not None and role not in ROLES:
+        return response_error("Invalid role", 400)
+    if active is not None and not isinstance(active, bool):
+        return response_error("Active must be true or false", 400)
+    if user_id == current_user["id"] and (active is False or (role is not None and role != "admin")):
+        return response_error("You cannot disable or demote your own administrator account", 400)
+    with database() as connection:
+        existing = user_row(connection, user_id)
+        if existing is None:
+            return response_error("User not found", 404)
+        connection.execute(
+            "UPDATE admin_users SET role = COALESCE(?, role), active = COALESCE(?, active) WHERE id = ?",
+            (role, None if active is None else int(active), user_id),
+        )
+        row = user_row(connection, user_id)
+    if active is False:
+        revoke_sessions_for_user(user_id, keep_token=current_token)
+    return dict(row), 200
 
 
 def chat_reply(message):
@@ -507,10 +722,35 @@ def chat_reply(message):
 
 
 class CareMaxHandler(BaseHTTPRequestHandler):
+    def cookies(self):
+        raw = self.headers.get("Cookie", "")
+        result = {}
+        for part in raw.split(";"):
+            key, separator, value = part.strip().partition("=")
+            if separator:
+                result[key] = value
+        return result
+
+    def current_user(self):
+        return session_user(self.cookies().get(SESSION_COOKIE))
+
+    def set_session_cookie(self, token, clear=False):
+        value = f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict" + ("; Max-Age=0" if clear else f"; Max-Age={SESSION_SECONDS}")
+        self._session_cookie = value
+
+    def send_security_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+
     def send_json(self, payload, status=200):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_security_headers()
+        if getattr(self, "_session_cookie", None):
+            self.send_header("Set-Cookie", self._session_cookie)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -532,6 +772,8 @@ class CareMaxHandler(BaseHTTPRequestHandler):
         body = file_path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", mimetypes.guess_type(filename)[0] or "application/octet-stream")
+        self.send_security_headers()
+        self.send_header("Cache-Control", "no-cache")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -539,13 +781,31 @@ class CareMaxHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
         try:
+            user = self.current_user()
+            if path == "/api/auth/status":
+                self.send_json(*auth_status(user))
+                return
             if path == "/":
                 self.send_frontend_file("index.html")
-            elif path in {"/index.html", "/caremax_system_plan.html", "/app.js", "/styles.css"}:
+                return
+            if path in STATIC_FILES:
                 self.send_frontend_file(path.lstrip("/"))
-            else:
-                payload, status = get_data(path)
-                self.send_json(payload, status)
+                return
+            if path.startswith("/api/payments/mpesa/"):
+                denied = authorize(user, SELL_ROLES)
+                self.send_json(*(denied or response_error("M-Pesa payments are recorded only by the CareMax Node deployment", 404)))
+                return
+            required = READ_ROUTES.get(path)
+            if required:
+                denied = authorize(user, required)
+                if denied:
+                    self.send_json(*denied)
+                    return
+            payload, status = get_data(path)
+            if path == "/api/products" and status == 200 and (user is None or user["role"] not in MANAGER_ROLES):
+                for product in payload:
+                    product.pop("costPrice", None)
+            self.send_json(payload, status)
         except Exception as exception:
             self.log_error("GET %s failed: %s", path, exception)
             self.send_json({"error": "Internal server error"}, 500)
@@ -554,20 +814,95 @@ class CareMaxHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         try:
             data = self.read_json()
-            if path == "/api/products":
-                payload, status = add_product(data)
-            elif path == "/api/sales":
-                payload, status = create_sale(data)
-            elif path == "/api/patients":
-                payload, status = add_patient(data)
-            elif path == "/api/appointments":
-                payload, status = add_appointment(data)
+            user = self.current_user()
+            if path == "/api/auth/setup":
+                designated = setup_username()
+                username = str(data.get("username") or designated or "admin").strip().lower()
+                password = str(data.get("password", ""))
+                if designated and username != designated:
+                    payload, status = response_error("Only the designated administrator can complete initial setup", 403)
+                elif len(password) < 12:
+                    payload, status = response_error("Choose a password with at least 12 characters", 400)
+                else:
+                    digest, salt = hash_password(password)
+                    user_id = None
+                    with database() as connection:
+                        if connection.execute("SELECT 1 FROM admin_users LIMIT 1").fetchone():
+                            payload, status = response_error("Initial administrator is already configured", 409)
+                        else:
+                            try:
+                                cursor = connection.execute(
+                                    "INSERT INTO admin_users (username, password_hash, password_salt, role, active, createdAt) VALUES (?, ?, ?, 'admin', 1, ?)",
+                                    (username, digest, salt, now_iso()),
+                                )
+                            except sqlite3.IntegrityError:
+                                payload, status = response_error("Username is already in use", 409)
+                            else:
+                                user_id = cursor.lastrowid
+                                payload, status = {"ok": True, "user": {"id": user_id, "username": username, "role": "admin"}}, 201
+                    if user_id is not None:
+                        self.set_session_cookie(issue_session(user_id))
+            elif path == "/api/auth/login":
+                username = str(data.get("username") or "admin").strip().lower()
+                password = str(data.get("password", ""))
+                throttle_key = (self.client_address[0], username)
+                if login_blocked(throttle_key):
+                    payload, status = response_error("Too many failed sign-in attempts. Try again in a few minutes.", 429)
+                else:
+                    with database() as connection:
+                        row = connection.execute(
+                            "SELECT * FROM admin_users WHERE username = ? AND active = 1", (username,)
+                        ).fetchone()
+                    if row is None:
+                        hash_password(password, DUMMY_SALT)
+                        record_login_failure(throttle_key)
+                        payload, status = response_error("Invalid username or password", 401)
+                    elif not password_matches(password, row["password_salt"], row["password_hash"]):
+                        record_login_failure(throttle_key)
+                        payload, status = response_error("Invalid username or password", 401)
+                    else:
+                        clear_login_failures(throttle_key)
+                        self.set_session_cookie(issue_session(row["id"]))
+                        payload, status = {
+                            "ok": True,
+                            "user": {"id": row["id"], "username": row["username"], "role": row["role"]},
+                        }, 200
+            elif path == "/api/auth/logout":
+                token = self.cookies().get(SESSION_COOKIE)
+                if token:
+                    with database() as connection:
+                        connection.execute(
+                            "DELETE FROM admin_sessions WHERE token_hash = ?",
+                            (hashlib.sha256(token.encode("utf-8")).hexdigest(),),
+                        )
+                self.set_session_cookie("", clear=True)
+                payload, status = {"ok": True}, 200
             elif path == "/api/chat":
                 message = str(data.get("message", "")).strip()
                 if not message:
                     payload, status = response_error("Type a question to get help", 400)
                 else:
                     payload, status = chat_reply(message)
+            elif path == "/api/payments/mpesa/stkpush":
+                denied = authorize(user, SELL_ROLES)
+                payload, status = denied or response_error(
+                    "M-Pesa STK Push requires the CareMax Node deployment. Use Cash, Card, or Insurance locally.", 503
+                )
+            elif path == "/api/products":
+                denied = authorize(user, MANAGER_ROLES)
+                payload, status = denied or add_product(data)
+            elif path == "/api/sales":
+                denied = authorize(user, SELL_ROLES)
+                payload, status = denied or create_sale(data, user)
+            elif path == "/api/patients":
+                denied = authorize(user, MANAGER_ROLES)
+                payload, status = denied or add_patient(data)
+            elif path == "/api/appointments":
+                denied = authorize(user, MANAGER_ROLES)
+                payload, status = denied or add_appointment(data)
+            elif path == "/api/users":
+                denied = authorize(user, ("admin",))
+                payload, status = denied or create_user(data)
             else:
                 payload, status = response_error("Not found", 404)
             self.send_json(payload, status)
@@ -581,13 +916,21 @@ class CareMaxHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         try:
             data = self.read_json()
-            if path.startswith("/api/products/") and path.endswith("/stock"):
-                product_id = int(path.split("/")[3])
-                payload, status = receive_stock(product_id, data)
-            elif path.startswith("/api/products/"):
-                product_id = int(path.split("/")[3])
-                payload, status = update_product(product_id, data)
+            user = self.current_user()
+            if path.startswith("/api/products/"):
+                denied = authorize(user, MANAGER_ROLES)
+                if denied:
+                    self.send_json(*denied)
+                    return
+                if path.endswith("/stock"):
+                    payload, status = receive_stock(int(path.split("/")[3]), data)
+                else:
+                    payload, status = update_product(int(path.split("/")[3]), data)
             elif path.startswith("/api/appointments/"):
+                denied = authorize(user, MANAGER_ROLES)
+                if denied:
+                    self.send_json(*denied)
+                    return
                 appointment_id = int(path.split("/")[3])
                 with database() as connection:
                     connection.execute("UPDATE appointments SET status = 'Completed' WHERE id = ?", (appointment_id,))
@@ -602,6 +945,27 @@ class CareMaxHandler(BaseHTTPRequestHandler):
             self.log_error("PUT %s failed: %s", path, exception)
             self.send_json({"error": "Internal server error"}, 500)
 
+    def do_PATCH(self):
+        path = urlsplit(self.path).path
+        try:
+            data = self.read_json()
+            user = self.current_user()
+            denied = authorize(user, ("admin",))
+            if denied:
+                self.send_json(*denied)
+                return
+            if path.startswith("/api/users/"):
+                payload, status = update_user(int(path.split("/")[3]), data, user,
+                                              self.cookies().get(SESSION_COOKIE))
+                self.send_json(payload, status)
+                return
+            self.send_json({"error": "Not found"}, 404)
+        except (ValueError, IndexError):
+            self.send_json({"error": "Invalid request"}, 400)
+        except Exception as exception:
+            self.log_error("PATCH %s failed: %s", path, exception)
+            self.send_json({"error": "Internal server error"}, 500)
+
 
 def create_server(host="127.0.0.1", port=5000):
     return ThreadingHTTPServer((host, port), CareMaxHandler)
@@ -610,7 +974,7 @@ def create_server(host="127.0.0.1", port=5000):
 def main():
     init_db()
     port = int(os.environ.get("PORT", "5000"))
-    host = os.environ.get("HOST", "0.0.0.0")
+    host = os.environ.get("HOST", "127.0.0.1")
     server = create_server(host=host, port=port)
     print(f"CareMax Python server listening on {host}:{port}")
     try:

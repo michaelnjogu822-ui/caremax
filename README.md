@@ -10,6 +10,10 @@ Pharmacy POS with inventory tracking, billing, sales reports, and a navigation a
 
 The Python service uses the standard library and the existing `caremax.db` SQLite database. Set `CAREMAX_DB_PATH` to use a different database file. Product cost must be entered when adding or receiving stock for gross-profit reporting; existing stock without a recorded cost remains excluded from profit until that inventory is replaced. The chat assistant uses built-in navigation and workflow guidance and does not require an external AI service.
 
+The first account created through Owner Login is an administrator. Administrators add pharmacist, cashier, and viewer accounts from User Management, and the local API enforces the same role rules as the deployed app. Set `ADMIN_EMAIL` before the first run to require that address as the first administrator, as in the deployed setup. Sign-in is limited to five failures per account and client address within five minutes. M-Pesa STK Push is implemented only in the Node deployment, so the local server records Cash, Card, and Insurance sales and answers an M-Pesa checkout with an explanatory message.
+
+Run the automated tests with `python -m unittest discover -s tests`.
+
 The starter catalog adds 25 common medicine entries with sample KSh prices and costs. These are editable reference estimates, not live supplier quotes; verify prices and prescription classifications with the pharmacy's suppliers and qualified staff before use. The POS flags prescription-classified items for pharmacist verification and blocks products whose recorded expiry date has passed.
 
 The Node/Vercel deployment uses PostgreSQL. The Python SQLite server remains a local development option and is separate from the Vercel deployment.

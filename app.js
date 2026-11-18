@@ -117,10 +117,20 @@ function uniqueId(prefix) {
     return prefix + '-' + Math.floor(1000 + Math.random() * 9000);
 }
 
+const SECTION_ROLES = {
+    inventory: ['admin', 'pharmacist'],
+    billing: ['admin', 'pharmacist', 'viewer'],
+    reports: ['admin', 'pharmacist', 'viewer']
+};
+
 function showSection(section) {
-    if (isOwnerSection(section) && !ownerLoggedIn) {
+    if (!canOpenSection(section)) {
         pendingOwnerSection = section;
-        showAuthModal();
+        if (!ownerLoggedIn) {
+            showAuthModal();
+        } else {
+            showSection('dashboard');
+        }
         return;
     }
 
@@ -142,13 +152,20 @@ function isOwnerSection(section) {
     return document.querySelector(`.nav-btn[data-section="${section}"]`)?.dataset.ownerOnly === 'true';
 }
 
+function canOpenSection(section) {
+    if (!isOwnerSection(section)) return true;
+    if (!ownerLoggedIn) return false;
+    const roles = SECTION_ROLES[section];
+    return !roles || roles.includes(currentUserRole);
+}
+
 function updateAuthUI() {
     document.getElementById('ownerLoginBtn').classList.toggle('hidden', ownerLoggedIn);
     document.getElementById('ownerLogoutBtn').classList.toggle('hidden', !ownerLoggedIn);
     const isAdmin = currentUserRole === 'admin';
     document.getElementById('usersNav').classList.toggle('hidden', !isAdmin);
     document.querySelectorAll('.nav-btn[data-owner-only="true"]').forEach((btn) => {
-        const allowed = ownerLoggedIn && (btn.dataset.section === 'reports' || ['admin', 'pharmacist'].includes(currentUserRole));
+        const allowed = ownerLoggedIn && (SECTION_ROLES[btn.dataset.section] || []).includes(currentUserRole);
         if (allowed) {
             btn.classList.remove('disabled');
             btn.removeAttribute('disabled');
