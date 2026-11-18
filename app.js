@@ -59,7 +59,8 @@ async function refreshAuthStatus() {
         : 'Sign in to manage inventory, billing, reports, and patient records.';
     button.textContent = !authStatusAvailable ? 'Try again after refresh' : firstAdminSetup ? 'Create account' : 'Login';
     button.disabled = !authStatusAvailable;
-    document.getElementById('ownerUsername').value = status.username || status.setupUsername || '';
+    document.getElementById('ownerUsername').value = status.username || status.setupUsername
+        || localStorage.getItem('caremax-last-username') || '';
     document.getElementById('ownerUsernameField').classList.toggle('hidden', status.authenticated);
     document.getElementById('ownerUsername').readOnly = firstAdminSetup;
     document.getElementById('ownerUsername').disabled = status.authenticated;
@@ -202,6 +203,7 @@ async function validateOwnerLogin() {
     try {
         const endpoint = firstAdminSetup ? '/auth/setup' : '/auth/login';
         const result = await apiRequest(endpoint, { method: 'POST', body: JSON.stringify({ username, password }) });
+        localStorage.setItem('caremax-last-username', username);
         ownerLoggedIn = true;
         currentUserRole = result.user?.role || 'admin';
         hideAuthModal();
