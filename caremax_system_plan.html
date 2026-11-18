@@ -341,8 +341,29 @@
                 { id: 31, name: 'Multivitamin tablets (30s)', sku: 'MVT-30', category: 'Vitamins & Minerals', price: 450, costPrice: 210, stock: 18, expiry: '2027-09-30', prescriptionRequired: false }
             ],
             sales: [
-                { id: 'SALE-1001', amount: 520, paymentMethod: 'Cash', createdAt: '2026-06-19T08:40:00', status: 'Paid' },
-                { id: 'SALE-1002', amount: 1860, paymentMethod: 'Mobile Money', createdAt: '2026-06-19T10:15:00', status: 'Paid' }
+                {
+                    id: 'SALE-1001',
+                    amount: 520,
+                    paymentMethod: 'Cash',
+                    createdAt: '2026-06-19T08:40:00',
+                    status: 'Paid',
+                    items: [
+                        { productId: 7, name: 'Ibuprofen 400mg tablets (10s)', sku: 'IBU-400-10', quantity: 2, unitPrice: 180, lineTotal: 360 },
+                        { productId: 1, name: 'Paracetamol 500mg tablets (10s)', sku: 'PAR-500', quantity: 1, unitPrice: 120, lineTotal: 120 },
+                        { productId: 18, name: 'Fluconazole 150mg capsule (1s)', sku: 'FLU-150-1', quantity: 1, unitPrice: 120, lineTotal: 120 }
+                    ]
+                },
+                {
+                    id: 'SALE-1002',
+                    amount: 1860,
+                    paymentMethod: 'Mobile Money',
+                    createdAt: '2026-06-19T10:15:00',
+                    status: 'Paid',
+                    items: [
+                        { productId: 3, name: 'Insulin Glargine 100 units/ml', sku: 'INS-GLA', quantity: 1, unitPrice: 1800, lineTotal: 1800 },
+                        { productId: 23, name: 'Clotrimazole 1% cream (20g)', sku: 'CLO-1-20G', quantity: 1, unitPrice: 220, lineTotal: 220 }
+                    ]
+                }
             ],
             stockReceipts: [],
             invoices: [
@@ -630,14 +651,34 @@
             const revenueReport = document.getElementById('revenueReport');
             const upcomingReport = document.getElementById('upcomingReport');
 
-            const topProducts = [...state.products].sort((a, b) => b.stock - a.stock).slice(0, 5);
-            topProductsReport.innerHTML = topProducts.map((p) => `<div class="small">• ${p.name} — ${p.stock} in stock</div>`).join('');
+            const itemSalesMap = new Map();
+            state.sales.forEach((sale) => {
+                const items = Array.isArray(sale.items) ? sale.items : [];
+                items.forEach((item) => {
+                    if (!item || !item.productId) return;
+                    const record = itemSalesMap.get(item.productId) || {
+                        productId: item.productId,
+                        name: item.name || 'Unknown product',
+                        quantity: 0,
+                        sku: item.sku || ''
+                    };
+                    record.quantity += Number(item.quantity || 0);
+                    itemSalesMap.set(item.productId, record);
+                });
+            });
 
-            const revenue = state.sales.reduce((sum, s) => sum + s.amount, 0);
+            const topProducts = [...itemSalesMap.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 5);
+            topProductsReport.innerHTML = topProducts.length
+                ? topProducts.map((item) => `<div class="small">• ${item.name} — ${item.quantity} sold</div>`).join('')
+                : '<div class="small">No product sales recorded yet.</div>';
+
+            const revenue = state.sales.reduce((sum, s) => sum + Number(s.amount || 0), 0);
             revenueReport.innerHTML = `<h2 class="margin-reset">${formatCurrency(revenue)}</h2><div class="small">Across ${state.sales.length} sales</div>`;
 
             const lowStockItems = state.products.filter((p) => p.stock < 10).slice(0, 5);
-            upcomingReport.innerHTML = lowStockItems.map((p) => `<div class="small">• ${p.name} — ${p.stock} left</div>`).join('');
+            upcomingReport.innerHTML = lowStockItems.length
+                ? lowStockItems.map((p) => `<div class="small">• ${p.name} — ${p.stock} left</div>`).join('')
+                : '<div class="small">No low-stock items.</div>';
         }
 
         function renderPos() {
@@ -763,11 +804,10 @@
                 return;
             }
             const oldStock = Number(product.stock || 0);
-            const oldCost = product.costPrice;
-            if (oldStock === 0 || oldCost != null) {
-                product.costPrice = ((oldStock * (oldCost || 0)) + quantity * unitCost) / (oldStock + quantity);
-            }
-            product.stock = oldStock + quantity;
+            const oldCost = Number(product.costPrice ?? 0);
+            const newStock = oldStock + quantity;
+            product.costPrice = newStock > 0 ? ((oldStock * oldCost) + (quantity * unitCost)) / newStock : 0;
+            product.stock = newStock;
             state.stockReceipts = state.stockReceipts || [];
             state.stockReceipts.unshift({
                 id: uniqueId('RCV'),
@@ -825,12 +865,21 @@
                 paymentMethod,
                 createdAt: now,
                 status: 'Paid',
-                prescriptionVerified: items.some((item) => item.product.prescriptionRequired)
+                prescriptionVerified: items.some((item) => item.product.prescriptionRequired),
+                items: items.map((item) => ({
+                    productId: item.productId,
+                    name: item.product.name,
+                    sku: item.product.sku,
+                    quantity: item.quantity,
+                    unitPrice: item.product.price,
+                    lineTotal: item.product.price * item.quantity
+                }))
             };
 
             const invoice = {
                 id: invoiceId,
                 total: Math.max(0, total),
+                paymentMethod,
                 status: 'Paid',
                 createdAt: now
             };
